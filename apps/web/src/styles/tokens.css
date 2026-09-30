@@ -1,0 +1,46 @@
+/*
+ * Design tokens di Arthur Play — UNICO file per colori, font e spaziature.
+ *
+ * Font self-hosted da /public/fonts (mai da CDN). File attesi:
+ *   public/fonts/ClashDisplay-Variable.woff2  (titoli)
+ *   public/fonts/Satoshi-Variable.woff2       (testo)
+ * Se mancano, il browser usa i font di sistema indicati come fallback.
+ */
+@font-face {
+  font-family: "Clash Display";
+  src: url("/fonts/ClashDisplay-Variable.woff2") format("woff2");
+  font-weight: 200 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Satoshi";
+  src: url("/fonts/Satoshi-Variable.woff2") format("woff2");
+  font-weight: 300 900;
+  font-display: swap;
+}
+
+@theme {
+  /* Colori di base: bianco, nero, rosso Arthur */
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-brand: #ff3a20;
+  /*
+   * Rosso per testo piccolo su bianco: #FF3A20 su bianco ha contrasto 3,6:1 (ok solo per
+   * testo grande e componenti). Per il testo normale si usa questa variante (5,6:1, WCAG AA).
+   */
+  --color-brand-ink: #c8260e;
+  /* Grigi neutri (contrasto ≥ 4,5:1 su bianco per --color-muted) */
+  --color-muted: #595959;
+  --color-line: #d4d4d4;
+  --color-soft: #f4f4f4;
+  --color-ok: #146c2e;
+
+  --font-display: "Clash Display", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Satoshi", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Spaziature e raggi */
+  --spacing: 0.25rem;
+  --radius-card: 1rem;
+  --radius-pill: 999px;
+  --touch-target: 3rem;
+}
