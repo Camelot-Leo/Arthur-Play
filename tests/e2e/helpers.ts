@@ -1,3 +1,4 @@
+import { DEFAULT_SETTINGS } from "@arthur/shared";
 import type { BrowserContext, Page, Request } from "@playwright/test";
 import { activities, authSessions, createDb, loginTokens, users } from "@arthur/db";
 import type { ActivityContent } from "@arthur/shared";
@@ -35,7 +36,7 @@ export async function createActivity(ownerId: string, content: ActivityContent) 
 
 export const sampleActivity: ActivityContent = {
   title: "Comunicazione efficace",
-  settings: { leaderboard: false, moderation: true },
+  settings: DEFAULT_SETTINGS,
   slides: [
     { id: "intro", type: "content", title: "Benvenuti in aula", body: "Oggi parliamo di ascolto attivo.", notes: "Presentarsi" },
     {

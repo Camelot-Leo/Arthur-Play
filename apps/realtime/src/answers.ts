@@ -48,6 +48,10 @@ export async function submitAnswer(
     /** Solo quiz: durata del timer attivo (null = timer disattivato) e istante della risposta. */
     quizTiming?: QuizTiming;
     now?: number;
+    /** Squadra del partecipante: i punti del quiz si sommano anche alla squadra. */
+    teamId?: string | null;
+    /** Missione "answers": ogni risposta accettata conta. */
+    countMission?: boolean;
   },
 ): Promise<SubmitResult> {
   const { sid, slide, tokenHash, answer, isFiltered, expiresAt } = opts;
@@ -124,12 +128,17 @@ export async function submitAnswer(
       m.pexpireat(quizKey, expiresAt);
       m.zincrby(K.score(sid), points, tokenHash);
       m.pexpireat(K.score(sid), expiresAt);
+      if (opts.teamId) {
+        m.zincrby(K.teamScore(sid), points, opts.teamId);
+        m.pexpireat(K.teamScore(sid), expiresAt);
+      }
       break;
     }
     case "qa":
       break;
   }
   m.pexpireat(aggKey, expiresAt);
+  if (opts.countMission) m.hincrby(K.mission(sid), "answers", 1).pexpireat(K.mission(sid), expiresAt);
   await m.exec();
   return { ok: true, answered: count };
 }

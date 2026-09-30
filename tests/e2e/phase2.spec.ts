@@ -1,10 +1,11 @@
+import { DEFAULT_SETTINGS } from "@arthur/shared";
 import { devices, expect, test, type Browser } from "@playwright/test";
 import type { ActivityContent } from "@arthur/shared";
 import { createActivity, createFacilitator, loginCookie, trackThirdParty } from "./helpers";
 
 const activity: ActivityContent = {
   title: "Fase 2 in aula",
-  settings: { leaderboard: false, moderation: true },
+  settings: DEFAULT_SETTINGS,
   slides: [
     { id: "intro", type: "content", title: "Si parte" },
     {

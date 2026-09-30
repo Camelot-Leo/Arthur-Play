@@ -125,18 +125,61 @@ export const slideSchema = z.discriminatedUnion("type", [
   quizSlideSchema,
 ]);
 
-export const activitySettingsSchema = z.object({
-  /** Classifica individuale: disattivata di default (Fase 3). */
-  leaderboard: z.boolean().default(false),
-  /** Filtro parole inadatte: attivo di default. */
-  moderation: z.boolean().default(true),
+/**
+ * Modalità Squadre: N squadre, assegnazione automatica bilanciata o scelta dal partecipante.
+ * Con le squadre attive la classifica è solo tra squadre.
+ */
+export const teamsSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  mode: z.enum(["auto", "choice"]).default("auto"),
+  names: z.array(text(LIMITS.teamNameMax).min(1)).min(LIMITS.teamsMin).max(LIMITS.teamsMax).default(["Squadra Rossa", "Squadra Blu"]),
 });
+
+/**
+ * Missione collettiva: obiettivo comune della classe.
+ * - `correct`: percentuale di risposte corrette ai quiz (aggiornata solo a risposte chiuse);
+ * - `answers`: numero totale di risposte inviate.
+ */
+export const missionSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  type: z.enum(["correct", "answers"]).default("correct"),
+  target: z.number().int().min(1).max(LIMITS.missionTargetMax).default(80),
+  label: text(LIMITS.titleMax).optional(),
+});
+
+export const DEFAULT_SETTINGS = {
+  leaderboard: false,
+  moderation: true,
+  teams: { enabled: false, mode: "auto" as "auto" | "choice", names: ["Squadra Rossa", "Squadra Blu"] },
+  mission: { enabled: false, type: "correct" as "correct" | "answers", target: 80 } as { enabled: boolean; type: "correct" | "answers"; target: number; label?: string },
+};
+
+export const activitySettingsSchema = z
+  .object({
+    /** Classifica individuale: disattivata di default; ignorata se le squadre sono attive. */
+    leaderboard: z.boolean().default(false),
+    /** Filtro parole inadatte: attivo di default. */
+    moderation: z.boolean().default(true),
+    teams: teamsSettingsSchema.default(DEFAULT_SETTINGS.teams),
+    mission: missionSettingsSchema.default(DEFAULT_SETTINGS.mission),
+  })
+  .superRefine((s, ctx) => {
+    if (s.mission.type === "correct" && s.mission.target > 100) {
+      ctx.addIssue({ code: "custom", path: ["mission", "target"], message: "percentuale" });
+    }
+  });
+
+/** Impostazioni complete (con default) anche per attività salvate prima della Fase 3. */
+export function normalizeSettings(raw: unknown): ActivitySettings {
+  const p = activitySettingsSchema.safeParse(raw ?? {});
+  return p.success ? p.data : activitySettingsSchema.parse({});
+}
 
 export const activityContentSchema = z.object({
   title: text(LIMITS.titleMax).min(1),
   description: text(LIMITS.bodyMax).optional(),
   slides: z.array(slideSchema).min(1).max(LIMITS.slidesMax),
-  settings: activitySettingsSchema.default({ leaderboard: false, moderation: true }),
+  settings: activitySettingsSchema.default(DEFAULT_SETTINGS),
 }).superRefine((a, ctx) => {
   a.slides.forEach((s, i) => {
     if (s.type !== "quiz") return;

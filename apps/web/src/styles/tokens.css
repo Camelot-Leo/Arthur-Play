@@ -45,6 +45,7 @@
   --color-soft: #f4f4f4;
   --color-ok: #146c2e;
 
+
   --font-display: "Clash Display", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   --font-sans: "Satoshi", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
@@ -53,4 +54,20 @@
   --radius-card: 1rem;
   --radius-pill: 999px;
   --touch-target: 3rem;
+}
+
+/*
+ * Colori delle squadre (sempre accompagnati dal nome, mai solo colore).
+ * Fuori da @theme perché usati come variabili CSS (inline), non come classi Tailwind.
+ * Testo bianco sopra: contrasto ≥ 4,5:1 per tutti tranne la squadra 1 (rosso), che usa testo nero.
+ */
+:root {
+  --color-team-1: #ff3a20;
+  --color-team-2: #1f5bff;
+  --color-team-3: #13804a;
+  --color-team-4: #7b3fe4;
+  --color-team-5: #a84f00;
+  --color-team-6: #0b7d82;
+  --color-team-7: #c2185b;
+  --color-team-8: #000000;
 }

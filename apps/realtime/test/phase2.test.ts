@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { EV, type ActivityContent, type SessionState } from "@arthur/shared";
+import { EV, type ActivityContent, type SessionState, DEFAULT_SETTINGS } from "@arthur/shared";
 import { K, createSession, sessionKeys, signTicket } from "@arthur/shared/server";
 import { SECRET, emit, nextEvent, socket, startServer, waitConnect } from "./helpers";
 
@@ -7,7 +7,7 @@ let srv: Awaited<ReturnType<typeof startServer>>;
 
 const activity: ActivityContent = {
   title: "Fase 2",
-  settings: { leaderboard: false, moderation: true },
+  settings: DEFAULT_SETTINGS,
   slides: [
     { id: "intro", type: "content", title: "Via" },
     {

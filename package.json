@@ -18,7 +18,8 @@
     "db:migrate": "pnpm --filter @arthur/db migrate",
     "db:seed": "pnpm --filter @arthur/db seed",
     "admin:create": "pnpm --filter @arthur/db admin:create",
-    "services:start": "bash scripts/services-start.sh"
+    "services:start": "bash scripts/services-start.sh",
+    "load:teams": "tsx tests/load/load.ts --teams 4"
   },
   "devDependencies": {
     "@arthur/db": "workspace:*",

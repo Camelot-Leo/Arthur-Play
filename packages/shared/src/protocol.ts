@@ -19,7 +19,41 @@ export type SessionState = {
   quizTimer: { enabled: boolean; factor: number };
   /** Soluzione del quiz, inviata solo a risposte chiuse. */
   reveal: { correctOptionId?: string; acceptedAnswers?: string[] } | null;
+  /** Squadre della sessione (null se la modalità Squadre è disattivata). */
+  teams: { mode: "auto" | "choice"; list: TeamInfo[] } | null;
+  /** Missione collettiva (null se disattivata). */
+  mission: MissionState | null;
+  /** Cosa mostra la Proiezione: la slide, la classifica o il podio finale. */
+  view: ScreenView;
+  /** Suoni della Proiezione attivi. */
+  sounds: boolean;
+  /** Classifica individuale attiva (mai insieme alle squadre). */
+  leaderboard: boolean;
 };
+
+export type ScreenView = "slide" | "leaderboard" | "podium";
+export type TeamInfo = { id: string; name: string; index: number };
+export type MissionState = {
+  type: "correct" | "answers";
+  target: number;
+  label?: string;
+  /** Percentuale di risposte corrette (type = correct) o numero di risposte (type = answers). */
+  value: number;
+  completed: boolean;
+};
+export type MissionMessage = Pick<MissionState, "value" | "completed">;
+
+/** Punteggio di squadra = media dei punti dei membri (equa anche con squadre di dimensioni diverse). */
+export type TeamScore = TeamInfo & { members: number; total: number; score: number; rank: number };
+export type LeaderEntry = { nickname: string; score: number; rank: number };
+export type BoardMessage = { teams: TeamScore[] | null; top: LeaderEntry[] | null };
+export type StandingReply = Ack<{
+  team: TeamInfo | null;
+  teamRank: number | null;
+  teamScore: number | null;
+  score: number;
+  rank: number | null;
+}>;
 
 export type ChoiceResults = { type: "choice"; respondents: number; counts: Record<string, number> };
 export type ScaleStat = { count: number; avg: number; dist: number[] };
@@ -71,6 +105,7 @@ export type ErrorCode =
   | "not_current"
   | "already_answered"
   | "limit_reached"
+  | "no_team"
   | "unauthorized";
 
 export type Ack<T = object> = ({ ok: true } & T) | { ok: false; error: ErrorCode };
@@ -79,7 +114,8 @@ export type Ack<T = object> = ({ ok: true } & T) | { ok: false; error: ErrorCode
 export type ParticipantAuth = { role: "participant"; code: string };
 export type ControlAuth = { role: "control" | "projection"; ticket: string };
 
-export type JoinReply = Ack<{ token: string; nickname: string; answered: number; expiresAt: number }>;
+export type JoinReply = Ack<{ token: string; nickname: string; answered: number; expiresAt: number; team: string | null }>;
+export type TeamReply = Ack<{ team: string }>;
 export type AnswerReply = Ack<{ answered: number }>;
 export type ControlInit = Ack<{ activity: ActivityContent; state: SessionState; code: string; expiresAt: number; participants: number }>;
 
@@ -92,6 +128,8 @@ export const EV = {
   qaVote: "p:qaVote",
   qaState: "p:qaState",
   myResult: "p:myResult",
+  chooseTeam: "p:team",
+  standing: "p:standing",
   // regia → server
   init: "c:init",
   goto: "c:goto",
@@ -103,11 +141,15 @@ export const EV = {
   hide: "c:hide",
   qaMark: "c:qaMark",
   quizTimer: "c:quizTimer",
+  view: "c:view",
+  sounds: "c:sounds",
   close: "c:close",
   // server → client
   state: "state",
   results: "results",
   qa: "qa",
+  mission: "mission",
+  board: "board",
   presence: "presence",
   ended: "ended",
 } as const;

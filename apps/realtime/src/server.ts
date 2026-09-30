@@ -25,6 +25,8 @@ import {
   type ErrorCode,
   type InteractiveSlide,
   type SessionState,
+  type ScreenView,
+  teamsOf,
   validateQaQuestion,
 } from "@arthur/shared";
 import {
@@ -44,6 +46,7 @@ import {
 } from "@arthur/shared/server";
 import { answeredCount, computeResults, qaAsk, qaItems, qaUpdate, qaVote, qaVotedBy, quizResultOf, setHidden, submitAnswer } from "./answers";
 import type { ModerationStore } from "./moderation";
+import { assignBalancedTeam, countMissionAnswer, joinTeam, markQuizRevealed, readBoard, readMission, readStanding } from "./gamification";
 
 export type RealtimeOptions = {
   httpServer: HttpServer;
@@ -64,6 +67,8 @@ type SocketData = {
   ipHash: string;
   tokenHash?: string;
   counted?: boolean;
+  /** Squadra del partecipante (null se non assegnata o modalità Squadre spenta). */
+  team?: string | null;
 };
 
 type AppSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
@@ -130,6 +135,11 @@ export function createRealtimeServer(opts: RealtimeOptions) {
             ? { correctOptionId: slide.correctOptionId }
             : { acceptedAnswers: slide.acceptedAnswers }
           : null,
+      teams: activity.settings.teams?.enabled ? { mode: activity.settings.teams.mode, list: teamsOf(activity.settings) } : null,
+      mission: await readMission(redis, sid, activity, meta.expiresAt),
+      view: meta.view,
+      sounds: meta.sounds,
+      leaderboard: !!activity.settings.leaderboard && !activity.settings.teams?.enabled,
     };
     return { state, meta, activity };
   }
@@ -159,11 +169,35 @@ export function createRealtimeServer(opts: RealtimeOptions) {
     return { meta, activity, slide: slide && isInteractive(slide) ? slide : null };
   }
 
+  /** Quiz già conteggiati per la missione (evita scritture ripetute). */
+  const revealedQuizzes = new Map<string, Set<string>>();
+
+  /** Missione e classifica: a tutti la missione, alla Regia sempre la classifica, alla Proiezione solo se la mostra. */
+  async function flushGame(sid: string, meta: SessionMeta, activity: ActivityContent) {
+    const r = rooms(sid);
+    const mission = await readMission(redis, sid, activity, meta.expiresAt);
+    if (mission) io.to([r.p, r.screen, r.ctrl]).emit(EV.mission, { value: mission.value, completed: mission.completed });
+    if (activity.settings.teams?.enabled || activity.settings.leaderboard) {
+      const board = await readBoard(redis, sid, activity, true);
+      io.to(r.ctrl).emit(EV.board, board);
+      if (meta.view !== "slide") io.to(r.screen).emit(EV.board, board);
+    }
+  }
+
   async function flushResults(sid: string) {
     const cur = await currentInteractive(sid);
-    if (!cur?.slide) return;
+    if (!cur) return;
+    if (!cur.slide) return flushGame(sid, cur.meta, cur.activity);
     const r = rooms(sid);
     const revealed = cur.slide.type === "quiz" && (await lockedNow(sid, cur.meta, cur.slide.id));
+    if (revealed) {
+      const seen = revealedQuizzes.get(sid) ?? new Set<string>();
+      if (!seen.has(cur.slide.id)) {
+        await markQuizRevealed(redis, sid, cur.slide.id, cur.meta.expiresAt);
+        seen.add(cur.slide.id);
+        revealedQuizzes.set(sid, seen);
+      }
+    }
     const [screen, control] = await Promise.all([
       computeResults(redis, sid, cur.slide, false, revealed),
       computeResults(redis, sid, cur.slide, true, revealed),
@@ -172,6 +206,7 @@ export function createRealtimeServer(opts: RealtimeOptions) {
     io.to(r.screen).emit(EV.results, { slideId: cur.slide.id, data: cur.meta.resultsVisible ? screen : null });
     // Q&A: l'elenco pubblico (senza autori, senza nascoste né filtrate) va anche ai partecipanti per votare.
     if (screen.type === "qa") io.to(r.p).emit(EV.qa, { slideId: cur.slide.id, items: screen.items.slice(0, QA_PUBLIC_MAX) });
+    await flushGame(sid, cur.meta, cur.activity);
   }
 
   /** Invio dei risultati raggruppato: al massimo uno ogni RESULTS_THROTTLE_MS per sessione. */
@@ -217,6 +252,7 @@ export function createRealtimeServer(opts: RealtimeOptions) {
 
   function forgetSession(sid: string) {
     activityCache.delete(sid);
+    revealedQuizzes.delete(sid);
     const t = timers.get(sid);
     if (t) clearTimeout(t);
     timers.delete(sid);
@@ -303,7 +339,7 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         if (!built) return fail(ack, "ended");
         const slide = built.activity.slides[built.meta.index]!;
         const answered = isInteractive(slide) ? await answeredCount(redis, sid, slide.id, socket.data.tokenHash!) : 0;
-        ack({ ok: true, token, nickname, answered, expiresAt: built.meta.expiresAt });
+        ack({ ok: true, token, nickname, answered, expiresAt: built.meta.expiresAt, team: socket.data.team ?? null });
         socket.emit(EV.state, built.state);
       };
 
@@ -320,10 +356,15 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         if (!added) return fail(ack, "nickname_taken");
         const token = randomToken(16);
         const tokenHash = sha256(token);
+        // Squadre con assegnazione automatica: bilanciata e atomica già all'ingresso.
+        const activity = await activityOf(sid);
+        const teams = activity ? teamsOf(activity.settings) : [];
+        const team = teams.length && activity!.settings.teams.mode === "auto" ? await assignBalancedTeam(redis, sid, teams, meta.expiresAt) : null;
+        socket.data.team = team;
         await redis
           .multi()
           .pexpireat(K.nicks(sid), meta.expiresAt)
-          .hset(K.participants(sid), tokenHash, JSON.stringify({ n: nickname }))
+          .hset(K.participants(sid), tokenHash, JSON.stringify(team ? { n: nickname, t: team } : { n: nickname }))
           .pexpireat(K.participants(sid), meta.expiresAt)
           .exec();
         await enterRoom(tokenHash);
@@ -337,7 +378,8 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         const tokenHash = sha256(token);
         const raw = await redis.hget(K.participants(sid), tokenHash);
         if (!raw) return fail(ack, "not_found");
-        const { n } = JSON.parse(raw) as { n: string };
+        const { n, t } = JSON.parse(raw) as { n: string; t?: string };
+        socket.data.team = t ?? null;
         await enterRoom(tokenHash);
         await replyJoined(ack, token, n);
       });
@@ -368,6 +410,8 @@ export function createRealtimeServer(opts: RealtimeOptions) {
           expiresAt: cur.meta.expiresAt,
           quizTiming: cur.meta.timerStart && cur.meta.timerEnd ? { start: cur.meta.timerStart, end: cur.meta.timerEnd } : null,
           now: Date.now(),
+          teamId: socket.data.team ?? null,
+          countMission: !!cur.activity.settings.mission?.enabled && cur.activity.settings.mission.type === "answers",
         });
         if (!res.ok) return fail(ack, res.error);
         markDirty(sid);
@@ -414,6 +458,9 @@ export function createRealtimeServer(opts: RealtimeOptions) {
           max: LIMITS.qaQuestionsPerPersonMax,
         });
         if (!res.ok) return fail(ack, res.error);
+        if (!res.filtered && cur.activity.settings.mission?.enabled && cur.activity.settings.mission.type === "answers") {
+          await countMissionAnswer(redis, sid, cur.meta.expiresAt);
+        }
         markDirty(sid);
         ack({ ok: true, asked: res.asked });
       });
@@ -440,6 +487,35 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         if (!cur.slide || cur.slide.type !== "quiz" || cur.slide.id !== slideId) return fail(ack, "not_current");
         if (!(await lockedNow(sid, cur.meta, cur.slide.id))) return fail(ack, "locked");
         ack({ ok: true, ...(await quizResultOf(redis, sid, cur.slide.id, socket.data.tokenHash)) });
+      });
+
+      /** Squadra scelta dal partecipante (modalità "choice"): una sola volta. */
+      on(EV.chooseTeam, async (payload, ack) => {
+        const tokenHash = socket.data.tokenHash;
+        if (!tokenHash) return fail(ack, "unauthorized");
+        const teamId = (payload as { teamId?: unknown })?.teamId;
+        const [meta, activity] = await Promise.all([getMeta(redis, sid), activityOf(sid)]);
+        if (!meta || !activity || meta.status !== "active") return fail(ack, "ended");
+        const teams = teamsOf(activity.settings);
+        if (activity.settings.teams.mode !== "choice" || !teams.some((t) => t.id === teamId)) return fail(ack, "invalid");
+        const raw = await redis.hget(K.participants(sid), tokenHash);
+        if (!raw) return fail(ack, "unauthorized");
+        const p = JSON.parse(raw) as { n: string; t?: string };
+        if (p.t) return ack({ ok: true, team: p.t });
+        await joinTeam(redis, sid, teamId as string, meta.expiresAt);
+        await redis.multi().hset(K.participants(sid), tokenHash, JSON.stringify({ ...p, t: teamId })).pexpireat(K.participants(sid), meta.expiresAt).exec();
+        socket.data.team = teamId as string;
+        markDirty(sid);
+        ack({ ok: true, team: teamId });
+      });
+
+      /** Posizione personale e della propria squadra. */
+      on(EV.standing, async (_payload, ack) => {
+        const tokenHash = socket.data.tokenHash;
+        if (!tokenHash) return fail(ack, "unauthorized");
+        const activity = await activityOf(sid);
+        if (!activity) return fail(ack, "ended");
+        ack({ ok: true, ...(await readStanding(redis, sid, activity, tokenHash, socket.data.team ?? null)) });
       });
 
       socket.on("disconnect", () => {
@@ -473,8 +549,12 @@ export function createRealtimeServer(opts: RealtimeOptions) {
       });
       const slide = built.activity.slides[built.meta.index];
       if (slide && isInteractive(slide)) {
-        const data = await computeResults(redis, sid, slide, role === "control");
+        const revealed = slide.type === "quiz" && built.state.locked;
+        const data = await computeResults(redis, sid, slide, role === "control", revealed);
         socket.emit(EV.results, { slideId: slide.id, data: role === "control" || built.meta.resultsVisible ? data : null });
+      }
+      if (built.activity.settings.teams?.enabled || built.activity.settings.leaderboard) {
+        if (role === "control" || built.meta.view !== "slide") socket.emit(EV.board, await readBoard(redis, sid, built.activity, true));
       }
     });
 
@@ -502,9 +582,9 @@ export function createRealtimeServer(opts: RealtimeOptions) {
       if (slide.type === "quiz" && slide.timerSeconds && meta.quizTimerEnabled && (reopen || !wasLocked)) {
         const now = Date.now();
         end = now + Math.min(Math.round(slide.timerSeconds * meta.timerFactor), LIMITS.timerMaxSeconds) * 1000;
-        m.hset(K.meta(sid), { index: i, timerStart: String(now), timerEnd: String(end) });
+        m.hset(K.meta(sid), { index: i, timerStart: String(now), timerEnd: String(end), view: "slide" });
       } else {
-        m.hset(K.meta(sid), { index: i, timerStart: "", timerEnd: "" });
+        m.hset(K.meta(sid), { index: i, timerStart: "", timerEnd: "", view: "slide" });
       }
       await m.pexpireat(K.meta(sid), meta.expiresAt).exec();
       scheduleTimer(sid, end);
@@ -616,6 +696,30 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         if (!slide || slide.type !== "qa") return;
         await qaUpdate(redis, { sid, slideId: slide.id, qid: p.qid as string, answered: p.answered as boolean, expiresAt: meta.expiresAt });
         await flushResults(sid);
+      });
+    });
+
+    /** Cosa mostra la Proiezione: slide, classifica (squadre o individuale) o podio di squadra. */
+    on(EV.view, async (payload, ack) => {
+      const view = (payload as { view?: unknown })?.view as ScreenView;
+      const act = await activityOf(sid);
+      const teamsOn = !!act?.settings.teams?.enabled;
+      const allowed = view === "slide" || (view === "leaderboard" && (teamsOn || !!act?.settings.leaderboard)) || (view === "podium" && teamsOn);
+      if (!allowed) return fail(ack, "invalid");
+      await withMeta(ack, async (meta, activity) => {
+        await redis.multi().hset(K.meta(sid), "view", view).pexpireat(K.meta(sid), meta.expiresAt).exec();
+        await broadcastState(sid);
+        if (view !== "slide") io.to(rooms(sid).screen).emit(EV.board, await readBoard(redis, sid, activity, true));
+      });
+    });
+
+    /** Suoni della Proiezione attivi o disattivati. */
+    on(EV.sounds, async (payload, ack) => {
+      const enabled = (payload as { enabled?: unknown })?.enabled;
+      if (typeof enabled !== "boolean") return fail(ack, "invalid");
+      await withMeta(ack, async (meta) => {
+        await redis.multi().hset(K.meta(sid), "sounds", enabled ? "1" : "0").pexpireat(K.meta(sid), meta.expiresAt).exec();
+        await broadcastState(sid);
       });
     });
 

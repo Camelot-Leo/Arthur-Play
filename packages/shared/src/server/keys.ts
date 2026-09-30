@@ -34,6 +34,12 @@ export const K = {
   quiz: (sid: string, slide: string) => `ap:s:{${sid}}:r:${slide}:quiz`,
   /** Punteggi dei quiz: hash(token) → punti totali */
   score: (sid: string) => `ap:s:{${sid}}:score`,
+  /** Squadre: id squadra → numero di membri */
+  teams: (sid: string) => `ap:s:{${sid}}:teams`,
+  /** Squadre: id squadra → punti totali dei membri */
+  teamScore: (sid: string) => `ap:s:{${sid}}:tscore`,
+  /** Missione collettiva: answers (contatore), r:{slide} (quiz già svelati), done */
+  mission: (sid: string) => `ap:s:{${sid}}:mission`,
   /** sessioni attive del facilitatore */
   userSessions: (userId: string) => `ap:u:${userId}:sessions`,
   salt: () => "ap:salt",

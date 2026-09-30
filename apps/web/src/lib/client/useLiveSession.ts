@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
-import { EV, type ActivityContent, type ControlInit, type ResultsMessage, type SessionState } from "@arthur/shared";
+import { EV, type ActivityContent, type BoardMessage, type ControlInit, type MissionMessage, type ResultsMessage, type SessionState } from "@arthur/shared";
 import { connectRealtime, emitAck, ticketAuth } from "./realtime";
 
 export type LiveSession = {
@@ -14,6 +14,8 @@ export type LiveSession = {
   code: string;
   participants: number;
   results: ResultsMessage | null;
+  /** Classifica (squadre o individuale). */
+  board: BoardMessage | null;
 };
 
 /** Collegamento di Regia o Proiezione alla sessione (con ticket rinnovato a ogni riconnessione). */
@@ -27,6 +29,7 @@ export function useLiveSession(sid: string, role: "control" | "projection"): Liv
     code: "",
     participants: 0,
     results: null,
+    board: null,
   });
 
   useEffect(() => {
@@ -51,6 +54,11 @@ export function useLiveSession(sid: string, role: "control" | "projection"): Liv
     });
     socket.on(EV.state, (state: SessionState) => setS((p) => ({ ...p, state, results: p.results?.slideId === state.slide.id ? p.results : null })));
     socket.on(EV.results, (results: ResultsMessage) => setS((p) => ({ ...p, results })));
+    // La missione arriva a parte (aggiornamenti frequenti); si applica sullo stato corrente.
+    socket.on(EV.mission, (m: MissionMessage) =>
+      setS((p) => (p.state?.mission ? { ...p, state: { ...p.state, mission: { ...p.state.mission, ...m } } } : p)),
+    );
+    socket.on(EV.board, (board: BoardMessage) => setS((p) => ({ ...p, board })));
     socket.on(EV.presence, ({ count }: { count: number }) => setS((p) => ({ ...p, participants: count })));
     socket.on(EV.ended, () => {
       setS((p) => ({ ...p, ended: true }));

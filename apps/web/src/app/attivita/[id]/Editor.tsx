@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useId, useState } from "react";
-import { LIMITS, T, type ActivityContent, type Slide, type SlideType } from "@arthur/shared";
+import { LIMITS, T, type ActivityContent, type ActivitySettings, type Slide, type SlideType } from "@arthur/shared";
 import { Footer } from "@/components/Footer";
 
 const newId = () => `s${Math.random().toString(36).slice(2, 10)}`;
@@ -119,6 +119,8 @@ export function Editor({ id, initial }: { id: string; initial: ActivityContent }
           />
           {T.editor.moderation}
         </label>
+
+        <GameSettings settings={content.settings} onChange={(settings) => setContent((c) => ({ ...c, settings }))} />
 
         <ol className="flex flex-col gap-6">
           {content.slides.map((s, i) => (
@@ -510,5 +512,110 @@ function ImageField({ slide, onChange }: { slide: Extract<Slide, { type: "conten
         </p>
       )}
     </div>
+  );
+}
+
+/** Squadre, missione collettiva e classifica individuale (disattivata di default). */
+function GameSettings({ settings, onChange }: { settings: ActivitySettings; onChange: (s: ActivitySettings) => void }) {
+  const { teams, mission } = settings;
+  const setTeams = (t: Partial<ActivitySettings["teams"]>) => onChange({ ...settings, teams: { ...teams, ...t } });
+  const setMission = (m: Partial<ActivitySettings["mission"]>) => onChange({ ...settings, mission: { ...mission, ...m } });
+  return (
+    <fieldset className="card flex flex-col gap-4 p-4">
+      <legend className="px-1 text-xl font-semibold">{T.editor.gamification}</legend>
+
+      <label className="flex items-center gap-3 font-bold">
+        <input type="checkbox" className="h-5 w-5 accent-brand" checked={teams.enabled} onChange={(e) => setTeams({ enabled: e.target.checked })} />
+        {T.editor.teamsEnabled}
+      </label>
+      {teams.enabled && (
+        <div className="flex flex-col gap-3 border-l-4 border-line pl-4">
+          <fieldset>
+            <legend className="label">{T.editor.teamsMode}</legend>
+            <div className="flex flex-wrap gap-4">
+              {(["auto", "choice"] as const).map((m) => (
+                <label key={m} className="flex items-center gap-2">
+                  <input type="radio" className="h-5 w-5 accent-brand" checked={teams.mode === m} onChange={() => setTeams({ mode: m })} />
+                  {m === "auto" ? T.editor.teamsAuto : T.editor.teamsChoice}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {teams.names.map((n, i) => (
+            <div key={i} className="flex items-end gap-2">
+              <TextField label={T.editor.teamName(i + 1)} value={n} max={LIMITS.teamNameMax} onChange={(v) => setTeams({ names: teams.names.map((x, j) => (j === i ? v : x)) })} />
+              <button
+                type="button"
+                className="btn min-h-12 px-3"
+                aria-label={T.editor.removeTeam(n || T.editor.teamName(i + 1))}
+                disabled={teams.names.length <= LIMITS.teamsMin}
+                onClick={() => setTeams({ names: teams.names.filter((_, j) => j !== i) })}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="btn self-start"
+            disabled={teams.names.length >= LIMITS.teamsMax}
+            onClick={() => setTeams({ names: [...teams.names, T.editor.defaultTeamName(teams.names.length + 1)] })}
+          >
+            {T.editor.addTeam}
+          </button>
+        </div>
+      )}
+
+      <label className="flex items-center gap-3 font-bold">
+        <input
+          type="checkbox"
+          className="h-5 w-5 accent-brand"
+          checked={settings.leaderboard && !teams.enabled}
+          disabled={teams.enabled}
+          onChange={(e) => onChange({ ...settings, leaderboard: e.target.checked })}
+        />
+        {T.editor.leaderboard}
+      </label>
+      {teams.enabled && <p className="text-sm text-muted">{T.editor.leaderboardTeamsNote}</p>}
+
+      <label className="flex items-center gap-3 font-bold">
+        <input type="checkbox" className="h-5 w-5 accent-brand" checked={mission.enabled} onChange={(e) => setMission({ enabled: e.target.checked })} />
+        {T.editor.missionEnabled}
+      </label>
+      {mission.enabled && (
+        <div className="flex flex-col gap-3 border-l-4 border-line pl-4">
+          <fieldset>
+            <legend className="label">{T.editor.missionType}</legend>
+            <div className="flex flex-col gap-2">
+              {(["correct", "answers"] as const).map((t) => (
+                <label key={t} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    className="h-5 w-5 accent-brand"
+                    checked={mission.type === t}
+                    onChange={() => setMission({ type: t, target: t === "correct" ? Math.min(mission.target, 100) : mission.target })}
+                  />
+                  {t === "correct" ? T.editor.missionCorrect : T.editor.missionAnswers}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <Field label={`${T.editor.missionTarget}${mission.type === "correct" ? " (%)" : ""}`}>
+            {(id) => (
+              <input
+                id={id}
+                type="number"
+                className="input max-w-32"
+                min={1}
+                max={mission.type === "correct" ? 100 : LIMITS.missionTargetMax}
+                value={mission.target}
+                onChange={(e) => setMission({ target: Math.max(1, Math.round(Number(e.target.value)) || 1) })}
+              />
+            )}
+          </Field>
+          <TextField label={T.editor.missionLabel} value={mission.label ?? ""} max={LIMITS.titleMax} onChange={(v) => setMission({ label: v || undefined })} />
+        </div>
+      )}
+    </fieldset>
   );
 }

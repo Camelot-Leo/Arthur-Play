@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { Writable } from "node:stream";
 import { io as connect, type Socket } from "socket.io-client";
-import { REALTIME_PATH, type ActivityContent } from "@arthur/shared";
+import { REALTIME_PATH, type ActivityContent, DEFAULT_SETTINGS } from "@arthur/shared";
 import { SEED_TERMS, createLogger, createRedis, createSession, signTicket, type Redis } from "@arthur/shared/server";
 import { ModerationStore } from "../src/moderation";
 import { createRealtimeServer } from "../src/server";
@@ -93,7 +93,7 @@ export function nextEvent<T = any>(s: Socket, ev: string, pred: (p: T) => boolea
 
 export const activity: ActivityContent = {
   title: "Attività di prova",
-  settings: { leaderboard: false, moderation: true },
+  settings: DEFAULT_SETTINGS,
   slides: [
     { id: "intro", type: "content", title: "Benvenuti", body: "Iniziamo", notes: "Nota segreta del facilitatore" },
     {

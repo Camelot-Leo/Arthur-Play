@@ -10,7 +10,7 @@ Web app mobile-first di gamification per la formazione su soft skills e competen
 |---|---|---|
 | 1 | MVP live: ingresso con codice/QR, tre viste, contenuto, scelta multipla, scala, risposta aperta, word cloud, moderazione, Privacy e cookie | ✅ |
 | 2 | Griglia 2x2, Ranking, 100 punti, Q&A anonimo, quiz a punti, PNG del risultato | ✅ |
-| 3 | Squadre, missione collettiva, classifica opzionale | — |
+| 3 | Squadre, missione collettiva, classifica opzionale, suoni e animazioni, podio | ✅ |
 | 4 | Modalità a ritmo libero | — |
 | 5 | Funzioni AI | — |
 | 6 | Editor completo, libreria condivisa, pannello admin | — |
@@ -98,9 +98,10 @@ DATABASE_URL=postgres://arthur:arthur@127.0.0.1:5432/arthur_play_test pnpm db:mi
 
 | Comando | Cosa verifica |
 |---|---|
-| `pnpm test` | Vitest: logica di punteggio del quiz (correttezza e velocità), filtro di moderazione (ogni voce delle liste e le sue varianti), validazione delle risposte, TTL, chiusura e scadenza delle sessioni, Redis senza persistenza, IP hashati e rate limiting, flusso realtime completo, assenza di dati dei partecipanti in log e PostgreSQL. Usa Redis DB 15 e `arthur_play_test` |
+| `pnpm test` | Vitest: punteggio di squadra, bilanciamento delle squadre e missione collettiva; logica di punteggio del quiz (correttezza e velocità), filtro di moderazione (ogni voce delle liste e le sue varianti), validazione delle risposte, TTL, chiusura e scadenza delle sessioni, Redis senza persistenza, IP hashati e rate limiting, flusso realtime completo, assenza di dati dei partecipanti in log e PostgreSQL. Usa Redis DB 15 e `arthur_play_test` |
 | `pnpm e2e` | Playwright: quiz, ranking, 100 punti, griglia, Q&A, PNG, timer, caricamento dei font; ingresso da smartphone in meno di 15 s, risultati in Proiezione entro 1 s, moderazione, riconnessione, chiusura, **nessuna richiesta verso domini terzi**. Avvia da solo realtime e web (build di produzione); Redis DB 14. Chromium in `PLAYWRIGHT_CHROMIUM_PATH` (default `/opt/pw-browsers/chromium`) |
 | `pnpm load` | Test di carico: 300 partecipanti simulati (`-- --participants N`), latenza delle risposte in Proiezione. Redis DB 13 |
+| `pnpm load:teams` | Come sopra con 4 squadre: bilanciamento (differenza massima 1) e classifica di squadra |
 | `pnpm typecheck`, `pnpm lint` | TypeScript ed ESLint |
 
 ## Funzioni della sessione live
@@ -109,6 +110,10 @@ DATABASE_URL=postgres://arthur:arthur@127.0.0.1:5432/arthur_play_test pnpm db:mi
 - **Regia**: avanzamento, anteprima della slide successiva, note, mostra/nascondi risultati, blocca/riapri, contatore dei connessi, nascondi singole risposte, segna domande del Q&A come risposte, download PNG del risultato (generato nel browser).
 - **Timer**: la Regia sceglie la durata in secondi, da 5 a 300 (massimo 5 minuti), con +30 s e stop. I quiz hanno un timer proprio (max 120 s) che parte da solo; il facilitatore può disattivarlo (1000 punti per ogni risposta corretta) o allungarlo ×1,5 / ×2 (WCAG 2.2.1).
 - **Quiz**: punteggio 500 + 500 × (tempo residuo / durata), 0 se errata. La soluzione arriva ai telefoni solo a risposte chiuse, insieme all'esito personale.
+- **Squadre** (impostazione dell'attività): 2–8 squadre, assegnazione automatica bilanciata o scelta dal partecipante. Punteggio di squadra = media dei punti dei membri; con le squadre la classifica è solo tra squadre. Podio di squadra a fine attività.
+- **Missione collettiva**: obiettivo comune (percentuale di risposte corrette ai quiz, aggiornata solo a risposte chiuse, oppure numero di risposte), barra condivisa su Proiezione e telefoni, animazione di completamento.
+- **Classifica individuale**: disattivata di default, attivabile per attività (solo senza squadre).
+- **Feedback**: suoni sintetizzati nel browser (disattivabili dalla Regia; in Proiezione si attivano con "Attiva i suoni"), animazioni tra le slide, coriandoli e podio; tutto rispetta `prefers-reduced-motion`.
 
 ## Privacy e dati
 
@@ -125,6 +130,7 @@ DATABASE_URL=postgres://arthur:arthur@127.0.0.1:5432/arthur_play_test pnpm db:mi
 | `ap:s:{sid}:r:{slide}:agg`, `:sub`, `:txt`, `:hidden` | aggregati; conteggio invii per hash del token (blocco doppi invii); testi **senza legame con token o nickname**; voci nascoste |
 | `ap:s:{sid}:r:{slide}:qa`, `:qav`, `:qav:{id}` | domande del Q&A **senza autore**; voti; hash dei token che hanno votato (un voto per domanda) |
 | `ap:s:{sid}:r:{slide}:quiz`, `ap:s:{sid}:score` | esito del quiz e punteggio per hash del token |
+| `ap:s:{sid}:teams`, `:tscore`, `:mission` | membri e punti totali per squadra; stato della missione collettiva |
 | `ap:salt` | salt per l'hash degli IP, TTL 24 ore |
 | `ap:rl:*` | contatori di rate limiting, TTL 60 s |
 

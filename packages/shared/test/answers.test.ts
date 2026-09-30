@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateAnswer } from "../src/slides/answers";
-import { activityContentSchema, type InteractiveSlide } from "../src/slides/schema";
+import { DEFAULT_SETTINGS, activityContentSchema, type InteractiveSlide } from "../src/slides/schema";
 
 const choice: InteractiveSlide = {
   id: "c1",
@@ -47,7 +47,10 @@ describe("validazione lato server delle risposte", () => {
 describe("schema attività", () => {
   it("accetta un'attività valida e applica i default", () => {
     const parsed = activityContentSchema.parse({ title: "T", slides: [{ id: "c", type: "content", title: "Ciao" }] });
-    expect(parsed.settings).toEqual({ leaderboard: false, moderation: true });
+    expect(parsed.settings).toEqual(DEFAULT_SETTINGS);
+    expect(parsed.settings.teams.enabled).toBe(false);
+    expect(parsed.settings.mission.enabled).toBe(false);
+    expect(parsed.settings.leaderboard).toBe(false); // classifica individuale disattivata di default
   });
   it("rifiuta immagini senza testo alternativo", () => {
     const r = activityContentSchema.safeParse({

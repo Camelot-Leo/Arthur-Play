@@ -1,3 +1,4 @@
+import { DEFAULT_SETTINGS } from "../src/slides/schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ActivityContent } from "../src/slides/schema";
 import { K, closeSession, createRedis, createSession, getMeta, hashIp, hit, resetSaltCache, sessionKeys, sidByCode } from "../src/server";
@@ -6,7 +7,7 @@ const redis = createRedis();
 const activity: ActivityContent = {
   title: "Test",
   slides: [{ id: "c1", type: "content", title: "Benvenuti" }],
-  settings: { leaderboard: false, moderation: true },
+  settings: DEFAULT_SETTINGS,
 };
 
 beforeAll(async () => {

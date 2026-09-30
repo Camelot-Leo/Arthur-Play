@@ -53,7 +53,7 @@ Senza dipendenze: grafici SVG, export PNG (SVG → canvas), suoni Web Audio, ani
 - [x] Fase 0 — Piano approvato
 - [x] Fase 1 — MVP live (vedi note sotto)
 - [x] Fase 2 — Tipi di slide restanti e quiz
-- [ ] Fase 3 — Gamification
+- [x] Fase 3 — Gamification
 - [ ] Fase 4 — Ritmo libero
 - [ ] Fase 5 — Funzioni AI
 - [ ] Fase 6 — Editor completo, libreria condivisa, admin
@@ -77,6 +77,18 @@ Senza dipendenze: grafici SVG, export PNG (SVG → canvas), suoni Web Audio, ani
 - Export PNG: `resultSvg` (puro, in `packages/shared/src/export/`) → canvas nel browser (`apps/web/src/lib/client/download-png.ts`). Esclude sempre le voci nascoste.
 - Dipendenze aggiunte (già approvate): `@dnd-kit/core`, `@dnd-kit/sortable`. `@dnd-kit/utilities` arriva come dipendenza transitiva, non è importato direttamente.
 - Telemetria Next: disattivata dagli script (`with-env.mjs`), dalla config Playwright e sulla macchina di sviluppo (`next telemetry disable`); test di regressione in `packages/shared/test/no-telemetry.test.ts`.
+
+## Note operative (Fase 3)
+
+- Impostazioni attività (`settings`): `teams` {enabled, mode `auto`|`choice`, names 2–8}, `mission` {enabled, type `correct`|`answers`, target, label}, `leaderboard` (default false, ignorata con squadre attive). Attività salvate prima: `normalizeSettings` applica i default.
+- Squadre: id `t1..tN`. Assegnazione automatica bilanciata e atomica (Lua in `apps/realtime/src/gamification.ts`); scelta del partecipante una sola volta (`p:team`). La squadra è salvata nel JSON del partecipante (`{n, t}`) e in `socket.data.team`.
+- Punteggio di squadra = **media** dei punti dei membri (`rankTeams`, `packages/shared/src/scoring/teams.ts`); pari punteggio = pari posizione. Classifica solo tra squadre quando le squadre sono attive.
+- Missione "correct": conta solo i quiz già svelati (niente anticipazioni a quiz aperto); "answers": ogni risposta accettata (anche domande Q&A non filtrate). Il completamento è definitivo (`done`). Evento `mission` a tutte le stanze a ogni flush.
+- Classifica (`board`): alla Regia sempre, alla Proiezione solo con vista `leaderboard`/`podium` (`c:view`); i telefoni chiedono la propria posizione con `p:standing`. Cambiare slide riporta la vista a `slide`.
+- Suoni: Web Audio sintetizzati in `apps/web/src/lib/client/sounds.ts`; attivabili dalla Regia (`c:sounds`, default attivi) e sbloccati in Proiezione dal pulsante "Attiva i suoni" (richiesto dai browser).
+- Colori delle squadre in `tokens.css` dentro `:root` (non in `@theme`, altrimenti Tailwind li elimina perché non usati come classi). Test e2e verifica i colori effettivi.
+- Nuove chiavi Redis: `:teams`, `:tscore`, `:mission` (tutte con TTL della sessione).
+- `pnpm load:teams`: test di carico con 4 squadre (bilanciamento + classifica).
 
 ## Punti aperti da ricordare
 

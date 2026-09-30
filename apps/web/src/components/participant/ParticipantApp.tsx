@@ -11,6 +11,7 @@ import {
   type AnswerReply,
   type ErrorCode,
   type JoinReply,
+  type MissionMessage,
   type QaPublicMessage,
   type SessionState,
 } from "@arthur/shared";
@@ -19,7 +20,10 @@ import { TimerBadge } from "@/components/Timer";
 import { ContentSlideView, SlideHeading } from "@/components/slides/SlideParts";
 import { clearToken, readToken, saveToken } from "@/lib/client/participant-token";
 import { connectRealtime, emitAck } from "@/lib/client/realtime";
+import { MissionBar } from "@/components/game/MissionBar";
+import { TeamBadge } from "@/components/game/TeamBadge";
 import { AnswerInput } from "./Inputs";
+import { StandingCard, TeamPicker } from "./Game";
 import { QaPanel } from "./QaPanel";
 import { QuizFeedback } from "./QuizFeedback";
 
@@ -40,6 +44,7 @@ export function ParticipantApp({ code }: { code: string }) {
   const [sending, setSending] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const [qa, setQa] = useState<QaPublicMessage | null>(null);
+  const [team, setTeam] = useState<string | null>(null);
   // Risposte già inviate alla slide corrente, note all'ingresso/riconnessione (lo stato arriva subito dopo).
   const pendingAnswered = useRef<number | null>(null);
 
@@ -47,6 +52,7 @@ export function ParticipantApp({ code }: { code: string }) {
     (res: Extract<JoinReply, { ok: true }>) => {
       saveToken(code, res.token, res.expiresAt);
       setNickname(res.nickname);
+      setTeam(res.team);
       setPhase("live");
       setError("");
     },
@@ -90,6 +96,7 @@ export function ParticipantApp({ code }: { code: string }) {
       }
     });
     socket.on(EV.qa, (msg: QaPublicMessage) => setQa(msg));
+    socket.on(EV.mission, (m: MissionMessage) => setState((st) => (st?.mission ? { ...st, mission: { ...st.mission, ...m } } : st)));
     socket.on(EV.ended, () => {
       clearToken(code);
       setPhase("ended");
@@ -135,13 +142,21 @@ export function ParticipantApp({ code }: { code: string }) {
     return false;
   };
 
+  const myTeam = state?.teams?.list.find((t) => t.id === team) ?? null;
+  const needsTeam = phase === "live" && state?.teams?.mode === "choice" && !team;
+
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col">
       <header className="flex items-center justify-between gap-3 px-4 pt-4">
         <span className="font-display text-lg font-semibold">
           {T.app.name}
         </span>
-        {phase === "live" && nickname && <span className="truncate text-sm text-muted">{T.participant.you(nickname)}</span>}
+        {phase === "live" && nickname && (
+          <span className="flex min-w-0 items-center gap-2 text-sm">
+            <span className="truncate text-muted">{T.participant.you(nickname)}</span>
+            {myTeam && <TeamBadge team={myTeam} className="text-xs" />}
+          </span>
+        )}
       </header>
       {!online && phase !== "notfound" && phase !== "ended" && (
         <p role="status" className="mx-4 mt-3 rounded-xl bg-black px-4 py-2 text-white">
@@ -164,7 +179,14 @@ export function ParticipantApp({ code }: { code: string }) {
           </h1>
         )}
         {phase === "nickname" && <NicknameForm onSubmit={join} busy={sending} error={error} />}
-        {phase === "live" && state && (
+        {phase === "live" && state?.mission && !needsTeam && (
+          <div className="mb-5">
+            <MissionBar mission={state.mission} />
+          </div>
+        )}
+        {needsTeam && state?.teams && <TeamPicker teams={state.teams.list} request={request} onChosen={setTeam} />}
+        {phase === "live" && state && !needsTeam && state.view !== "slide" && <StandingCard key={state.view} view={state.view} request={request} />}
+        {phase === "live" && state && !needsTeam && state.view === "slide" && (
           <LiveSlide
             state={state}
             answered={answered[state.slide.id] ?? 0}

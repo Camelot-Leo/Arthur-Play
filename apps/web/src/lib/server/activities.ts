@@ -1,9 +1,9 @@
 import { and, desc, eq, activities, type Activity } from "@arthur/db";
-import { T, type ActivityContent } from "@arthur/shared";
+import { T, type ActivityContent, DEFAULT_SETTINGS, normalizeSettings } from "@arthur/shared";
 import { db } from "./services";
 
 export function toContent(a: Activity): ActivityContent {
-  return { title: a.title, description: a.description ?? undefined, slides: a.slides, settings: a.settings };
+  return { title: a.title, description: a.description ?? undefined, slides: a.slides, settings: normalizeSettings(a.settings) };
 }
 
 export async function listOwned(userId: string) {
@@ -31,7 +31,7 @@ export async function createDefault(userId: string): Promise<string> {
       ownerId: userId,
       title: T.activities.untitled,
       slides: [{ id: "benvenuti", type: "content", title: "Benvenuti!" }],
-      settings: { leaderboard: false, moderation: true },
+      settings: DEFAULT_SETTINGS,
     })
     .returning({ id: activities.id });
   return row!.id;

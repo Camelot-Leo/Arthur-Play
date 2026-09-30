@@ -18,6 +18,8 @@ export type SessionMeta = {
   timerStart: number | null;
   quizTimerEnabled: boolean;
   timerFactor: number;
+  view: "slide" | "leaderboard" | "podium";
+  sounds: boolean;
   expiresAt: number;
   title: string;
 };
@@ -36,6 +38,8 @@ export function parseMeta(sid: string, h: Record<string, string>): SessionMeta |
     timerStart: h.timerStart ? Number(h.timerStart) : null,
     quizTimerEnabled: h.quizTimer !== "0",
     timerFactor: [1, 1.5, 2].includes(Number(h.timerFactor)) ? Number(h.timerFactor) : 1,
+    view: h.view === "leaderboard" || h.view === "podium" ? h.view : "slide",
+    sounds: h.sounds !== "0",
     expiresAt: Number(h.expiresAt),
     title: h.title ?? "",
   };
@@ -88,6 +92,8 @@ export async function createSession(
       timerStart: "",
       quizTimer: "1",
       timerFactor: "1",
+      view: "slide",
+      sounds: "1",
       expiresAt: String(expiresAt),
       title: opts.activity.title,
     })

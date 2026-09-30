@@ -5,12 +5,15 @@
  * - latenza tra invio della risposta e comparsa del conteggio in Proiezione.
  * Esito positivo se il 100% delle risposte compare in Proiezione entro 1 secondo.
  *
- * Uso: pnpm load [-- --participants 300]
+ * Con `--teams N` (N ≥ 2) attiva la modalità Squadre con assegnazione automatica, aggiunge un
+ * quiz e verifica anche il bilanciamento delle squadre e l'aggiornamento della classifica.
+ *
+ * Uso: pnpm load [-- --participants 300] [-- --teams 4]
  */
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { io, type Socket } from "socket.io-client";
-import { EV, REALTIME_PATH, type ActivityContent } from "@arthur/shared";
+import { EV, REALTIME_PATH, type ActivityContent, DEFAULT_SETTINGS } from "@arthur/shared";
 import { closeSession, createRedis, createSession, sessionKeys, signTicket } from "@arthur/shared/server";
 
 const arg = (name: string, def: number) => {
@@ -18,6 +21,7 @@ const arg = (name: string, def: number) => {
   return i >= 0 ? Number(process.argv[i + 1]) : def;
 };
 const N = arg("participants", 300);
+const TEAMS = arg("teams", 0);
 const PORT = arg("port", 4300);
 const SECRET = "load-test-secret-load-test-secret-123456";
 const REDIS_URL = process.env.LOAD_REDIS_URL ?? "redis://127.0.0.1:6379/13";
@@ -25,7 +29,14 @@ const URL_RT = `http://127.0.0.1:${PORT}`;
 
 const activity: ActivityContent = {
   title: "Test di carico",
-  settings: { leaderboard: false, moderation: true },
+  settings:
+    TEAMS >= 2
+      ? {
+          ...DEFAULT_SETTINGS,
+          teams: { enabled: true, mode: "auto", names: Array.from({ length: TEAMS }, (_, i) => `Squadra ${i + 1}`) },
+          mission: { enabled: true, type: "correct", target: 60 },
+        }
+      : DEFAULT_SETTINGS,
   slides: [
     { id: "intro", type: "content", title: "Benvenuti" },
     {
@@ -41,6 +52,19 @@ const activity: ActivityContent = {
     },
     { id: "q2", type: "open", question: "Aperta", maxAnswers: 1 },
     { id: "q3", type: "wordcloud", question: "Parole", maxEntries: 3 },
+    {
+      id: "q4",
+      type: "quiz",
+      question: "Quiz",
+      mode: "single",
+      options: [
+        { id: "a", label: "Giusta" },
+        { id: "b", label: "Sbagliata" },
+      ],
+      correctOptionId: "a",
+      acceptedAnswers: [],
+      timerSeconds: 60,
+    },
   ],
 };
 
@@ -114,6 +138,7 @@ async function main() {
 
     const tJoin = Date.now();
     const participants: Socket[] = [];
+    const teamOf = new Map<Socket, string>();
     const batch = 50;
     for (let b = 0; b < N; b += batch) {
       await Promise.all(
@@ -122,6 +147,7 @@ async function main() {
           await connected(s);
           const r = await ack(s, EV.join, { nickname: `Partecipante ${b + j + 1}` });
           if (!r.ok) throw new Error(`ingresso rifiutato: ${r.error}`);
+          if (r.team) teamOf.set(s, r.team);
           participants.push(s);
         }),
       );
@@ -133,7 +159,25 @@ async function main() {
       await round("Risposta aperta", ctrl, proj, participants, 2, "q2", (i) => ({ text: `Risposta numero ${i} sul lavoro di squadra` })),
       await round("Word cloud", ctrl, proj, participants, 3, "q3", (i) => ({ words: [`parola${i % 40}`, "fiducia"] })),
     ];
+    results.push(await round("Quiz a punti", ctrl, proj, participants, 4, "q4", (i) => ({ optionId: i % 3 === 0 ? "b" : "a" })));
     failed = results.some((r) => r.max > 1000);
+
+    if (TEAMS >= 2) {
+      const counts: Record<string, number> = {};
+      for (const t of teamOf.values()) counts[t] = (counts[t] ?? 0) + 1;
+      const values = Object.values(counts);
+      const spread = Math.max(...values) - Math.min(...values);
+      console.log(`Squadre: ${Object.keys(counts).length} squadre, membri ${values.join(" / ")} (differenza massima ${spread})`);
+      if (Object.keys(counts).length !== TEAMS || spread > 1) failed = true;
+      // Classifica di squadra aggiornata con i punti del quiz
+      const board = new Promise<any>((resolve) => ctrl.on(EV.board, (b: any) => b.teams?.every((t: any) => t.total > 0) && resolve(b)));
+      await ack(ctrl, EV.lock, { locked: true });
+      const b = await Promise.race([board, new Promise((r) => setTimeout(() => r(null), 3000))]);
+      if (!b) {
+        console.error("Classifica di squadra non ricevuta");
+        failed = true;
+      } else console.log(`Classifica: ${(b as any).teams.map((t: any) => `${t.name} ${t.score}`).join(", ")}`);
+    }
 
     for (const s of participants) s.disconnect();
     ctrl.disconnect();
