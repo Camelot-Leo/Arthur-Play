@@ -57,12 +57,72 @@ export const wordcloudSlideSchema = z.object({
   notes,
 });
 
+const axisSchema = z.object({ min: text(40).min(1), max: text(40).min(1) });
+
+/** Griglia 2x2: due assi, i partecipanti posizionano ogni elemento; risultato = punti medi. */
+export const gridSlideSchema = z.object({
+  id,
+  type: z.literal("grid"),
+  question: text(LIMITS.questionMax).min(1),
+  xAxis: axisSchema,
+  yAxis: axisSchema,
+  items: z.array(optionSchema).min(1).max(LIMITS.gridItemsMax),
+  notes,
+});
+
+/** Ranking: ordinamento delle opzioni; risultato = posizione media. */
+export const rankingSlideSchema = z.object({
+  id,
+  type: z.literal("ranking"),
+  question: text(LIMITS.questionMax).min(1),
+  options: z.array(optionSchema).min(2).max(LIMITS.choiceOptionsMax),
+  notes,
+});
+
+/** 100 punti: distribuzione di 100 punti tra le opzioni; risultato = media per opzione. */
+export const pointsSlideSchema = z.object({
+  id,
+  type: z.literal("points"),
+  question: text(LIMITS.questionMax).min(1),
+  options: z.array(optionSchema).min(2).max(LIMITS.choiceOptionsMax),
+  notes,
+});
+
+/** Q&A anonimo con upvote e moderazione del facilitatore. */
+export const qaSlideSchema = z.object({
+  id,
+  type: z.literal("qa"),
+  question: text(LIMITS.questionMax).min(1),
+  notes,
+});
+
+/**
+ * Quiz a punti: risposta singola (opzioni + risposta corretta) o scritta (risposte accettate).
+ * `timerSeconds` null = senza timer (punteggio fisso).
+ */
+export const quizSlideSchema = z.object({
+  id,
+  type: z.literal("quiz"),
+  question: text(LIMITS.questionMax).min(1),
+  mode: z.enum(["single", "text"]),
+  options: z.array(optionSchema).max(LIMITS.choiceOptionsMax).default([]),
+  correctOptionId: id.optional(),
+  acceptedAnswers: z.array(text(LIMITS.quizAnswerMax).min(1)).max(LIMITS.quizAcceptedMax).default([]),
+  timerSeconds: z.number().int().min(LIMITS.timerMinSeconds).max(LIMITS.quizTimerMaxSeconds).nullable().default(20),
+  notes,
+});
+
 export const slideSchema = z.discriminatedUnion("type", [
   contentSlideSchema,
   choiceSlideSchema,
   scaleSlideSchema,
   openSlideSchema,
   wordcloudSlideSchema,
+  gridSlideSchema,
+  rankingSlideSchema,
+  pointsSlideSchema,
+  qaSlideSchema,
+  quizSlideSchema,
 ]);
 
 export const activitySettingsSchema = z.object({
@@ -77,6 +137,17 @@ export const activityContentSchema = z.object({
   description: text(LIMITS.bodyMax).optional(),
   slides: z.array(slideSchema).min(1).max(LIMITS.slidesMax),
   settings: activitySettingsSchema.default({ leaderboard: false, moderation: true }),
+}).superRefine((a, ctx) => {
+  a.slides.forEach((s, i) => {
+    if (s.type !== "quiz") return;
+    const path = ["slides", i];
+    if (s.mode === "single") {
+      if (s.options.length < LIMITS.choiceOptionsMin) ctx.addIssue({ code: "custom", path: [...path, "options"], message: "opzioni" });
+      if (!s.options.some((o) => o.id === s.correctOptionId)) ctx.addIssue({ code: "custom", path: [...path, "correctOptionId"], message: "corretta" });
+    } else if (s.acceptedAnswers.length === 0) {
+      ctx.addIssue({ code: "custom", path: [...path, "acceptedAnswers"], message: "risposte accettate" });
+    }
+  });
 });
 
 export type ContentSlide = z.infer<typeof contentSlideSchema>;
@@ -84,6 +155,11 @@ export type ChoiceSlide = z.infer<typeof choiceSlideSchema>;
 export type ScaleSlide = z.infer<typeof scaleSlideSchema>;
 export type OpenSlide = z.infer<typeof openSlideSchema>;
 export type WordcloudSlide = z.infer<typeof wordcloudSlideSchema>;
+export type GridSlide = z.infer<typeof gridSlideSchema>;
+export type RankingSlide = z.infer<typeof rankingSlideSchema>;
+export type PointsSlide = z.infer<typeof pointsSlideSchema>;
+export type QaSlide = z.infer<typeof qaSlideSchema>;
+export type QuizSlide = z.infer<typeof quizSlideSchema>;
 export type Slide = z.infer<typeof slideSchema>;
 export type SlideType = Slide["type"];
 export type InteractiveSlide = Exclude<Slide, ContentSlide>;
@@ -98,7 +174,15 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 export type PublicSlide = DistributiveOmit<Slide, "notes">;
 export type PublicInteractive = DistributiveOmit<InteractiveSlide, "notes">;
 
+/**
+ * Versione pubblica: senza note e, per i quiz, senza la soluzione
+ * (la soluzione arriva ai partecipanti solo a risposte chiuse, vedi `SessionState.reveal`).
+ */
 export function toPublicSlide(slide: Slide): PublicSlide {
   const { notes: _notes, ...rest } = slide;
+  if (rest.type === "quiz") {
+    const { correctOptionId: _c, acceptedAnswers: _a, ...quiz } = rest;
+    return { ...quiz, acceptedAnswers: [] } as PublicSlide;
+  }
   return rest as PublicSlide;
 }

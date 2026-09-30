@@ -1,5 +1,6 @@
 "use client";
 import { T, type ChoiceResults, type PublicInteractive, type OpenResults, type ScaleResults, type SlideResults, type WordcloudResults } from "@arthur/shared";
+import { GridView, PointsView, QaView, QuizView, RankingView, type QaControls } from "./ResultsExtra";
 
 type Variant = "projection" | "control";
 
@@ -10,11 +11,19 @@ export function Results(props: {
   slide: PublicInteractive;
   data: SlideResults | null;
   variant: Variant;
+  /** La Proiezione riceve null quando il facilitatore nasconde i risultati. */
+  hidden?: boolean;
   onHide?: (itemId: string, hidden: boolean) => void;
+  qaControls?: QaControls;
+  /** Soluzione del quiz: dalla slide completa (Regia) o dallo stato a risposte chiuse (Proiezione). */
+  solution?: { correctOptionId?: string; acceptedAnswers?: string[] } | null;
 }) {
   const { slide, data, variant } = props;
-  if (!data) {
+  if (props.hidden) {
     return <p className="text-center text-2xl text-muted">{T.results.hidden}</p>;
+  }
+  if (!data) {
+    return <p className={`text-center text-muted ${variant === "projection" ? "text-3xl" : "text-lg"}`}>{T.results.noAnswers}</p>;
   }
   if (data.respondents === 0) {
     return <p className={`text-center text-muted ${variant === "projection" ? "text-3xl" : "text-lg"}`}>{T.results.noAnswers}</p>;
@@ -28,6 +37,16 @@ export function Results(props: {
       return <OpenView data={data} variant={variant} onHide={props.onHide} />;
     case "wordcloud":
       return <WordcloudView data={data} variant={variant} onHide={props.onHide} />;
+    case "grid":
+      return slide.type === "grid" ? <GridView slide={slide} data={data} variant={variant} /> : null;
+    case "ranking":
+      return slide.type === "ranking" ? <RankingView slide={slide} data={data} variant={variant} /> : null;
+    case "points":
+      return slide.type === "points" ? <PointsView slide={slide} data={data} variant={variant} /> : null;
+    case "qa":
+      return <QaView data={data} variant={variant} controls={props.qaControls} onHide={props.onHide} />;
+    case "quiz":
+      return slide.type === "quiz" ? <QuizView slide={slide} data={data} variant={variant} solution={props.solution ?? null} /> : null;
   }
 }
 

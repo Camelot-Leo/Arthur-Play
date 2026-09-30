@@ -25,6 +25,7 @@ import {
   type ErrorCode,
   type InteractiveSlide,
   type SessionState,
+  validateQaQuestion,
 } from "@arthur/shared";
 import {
   K,
@@ -41,7 +42,7 @@ import {
   verifyTicket,
   type SessionMeta,
 } from "@arthur/shared/server";
-import { answeredCount, computeResults, setHidden, submitAnswer } from "./answers";
+import { answeredCount, computeResults, qaAsk, qaItems, qaUpdate, qaVote, qaVotedBy, quizResultOf, setHidden, submitAnswer } from "./answers";
 import type { ModerationStore } from "./moderation";
 
 export type RealtimeOptions = {
@@ -66,6 +67,9 @@ type SocketData = {
 };
 
 type AppSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
+
+/** Domande del Q&A inviate ai telefoni dei partecipanti. */
+const QA_PUBLIC_MAX = 100;
 
 const rooms = (sid: string) => ({ p: `${sid}:p`, screen: `${sid}:screen`, ctrl: `${sid}:ctrl` });
 
@@ -108,15 +112,24 @@ export function createRealtimeServer(opts: RealtimeOptions) {
     const [meta, activity] = await Promise.all([getMeta(redis, sid), activityOf(sid)]);
     if (!meta || !activity || meta.status !== "active") return null;
     const slide = activity.slides[meta.index] ?? activity.slides[0]!;
+    const locked = isInteractive(slide) ? await lockedNow(sid, meta, slide.id) : false;
     const state: SessionState = {
       status: "active",
       index: meta.index,
       total: activity.slides.length,
       slide: toPublicSlide(slide),
-      locked: isInteractive(slide) ? await lockedNow(sid, meta, slide.id) : false,
+      locked,
       resultsVisible: meta.resultsVisible,
       timerEnd: meta.timerEnd,
       now: Date.now(),
+      quizTimer: { enabled: meta.quizTimerEnabled, factor: meta.timerFactor },
+      // La soluzione del quiz arriva ai partecipanti solo a risposte chiuse.
+      reveal:
+        slide.type === "quiz" && locked
+          ? slide.mode === "single"
+            ? { correctOptionId: slide.correctOptionId }
+            : { acceptedAnswers: slide.acceptedAnswers }
+          : null,
     };
     return { state, meta, activity };
   }
@@ -150,12 +163,15 @@ export function createRealtimeServer(opts: RealtimeOptions) {
     const cur = await currentInteractive(sid);
     if (!cur?.slide) return;
     const r = rooms(sid);
+    const revealed = cur.slide.type === "quiz" && (await lockedNow(sid, cur.meta, cur.slide.id));
     const [screen, control] = await Promise.all([
-      computeResults(redis, sid, cur.slide, false),
-      computeResults(redis, sid, cur.slide, true),
+      computeResults(redis, sid, cur.slide, false, revealed),
+      computeResults(redis, sid, cur.slide, true, revealed),
     ]);
     io.to(r.ctrl).emit(EV.results, { slideId: cur.slide.id, data: control });
     io.to(r.screen).emit(EV.results, { slideId: cur.slide.id, data: cur.meta.resultsVisible ? screen : null });
+    // Q&A: l'elenco pubblico (senza autori, senza nascoste né filtrate) va anche ai partecipanti per votare.
+    if (screen.type === "qa") io.to(r.p).emit(EV.qa, { slideId: cur.slide.id, items: screen.items.slice(0, QA_PUBLIC_MAX) });
   }
 
   /** Invio dei risultati raggruppato: al massimo uno ogni RESULTS_THROTTLE_MS per sessione. */
@@ -350,10 +366,80 @@ export function createRealtimeServer(opts: RealtimeOptions) {
           answer: v.value,
           isFiltered: moderationOn ? moderation.isFiltered : () => false,
           expiresAt: cur.meta.expiresAt,
+          quizTiming: cur.meta.timerStart && cur.meta.timerEnd ? { start: cur.meta.timerStart, end: cur.meta.timerEnd } : null,
+          now: Date.now(),
         });
         if (!res.ok) return fail(ack, res.error);
         markDirty(sid);
         ack({ ok: true, answered: res.answered });
+      });
+
+      /** Slide Q&A corrente, aperta, per un partecipante già entrato. */
+      const currentQa = async (ack: (res: unknown) => void, slideId: unknown) => {
+        if (!socket.data.tokenHash) return void fail(ack, "unauthorized");
+        const cur = await currentInteractive(sid);
+        if (!cur) return void fail(ack, "ended");
+        if (!cur.slide || cur.slide.type !== "qa" || cur.slide.id !== slideId) return void fail(ack, "not_current");
+        return cur;
+      };
+
+      on(EV.qaState, async (payload, ack) => {
+        const slideId = (payload as { slideId?: unknown })?.slideId;
+        const cur = await currentQa(ack, slideId);
+        if (!cur) return;
+        const [items, voted, asked] = await Promise.all([
+          qaItems(redis, sid, cur.slide!.id, false),
+          qaVotedBy(redis, sid, cur.slide!.id, socket.data.tokenHash!),
+          answeredCount(redis, sid, cur.slide!.id, socket.data.tokenHash!),
+        ]);
+        ack({ ok: true, items: items.slice(0, QA_PUBLIC_MAX), voted, asked });
+      });
+
+      on(EV.qaAsk, async (payload, ack) => {
+        const p = payload as { slideId?: unknown; text?: unknown };
+        const cur = await currentQa(ack, p?.slideId);
+        if (!cur) return;
+        if (!(await hit(redis, socket.data.tokenHash!, "answer", RATE.answerPerToken.limit, RATE.answerPerToken.window))) return fail(ack, "rate_limited");
+        if (await lockedNow(sid, cur.meta, cur.slide!.id)) return fail(ack, "locked");
+        const v = validateQaQuestion({ text: p.text });
+        if (!v.ok) return fail(ack, "invalid");
+        const moderationOn = cur.activity.settings?.moderation !== false;
+        const res = await qaAsk(redis, {
+          sid,
+          slideId: cur.slide!.id,
+          tokenHash: socket.data.tokenHash!,
+          text: v.value,
+          isFiltered: moderationOn ? moderation.isFiltered : () => false,
+          expiresAt: cur.meta.expiresAt,
+          max: LIMITS.qaQuestionsPerPersonMax,
+        });
+        if (!res.ok) return fail(ack, res.error);
+        markDirty(sid);
+        ack({ ok: true, asked: res.asked });
+      });
+
+      on(EV.qaVote, async (payload, ack) => {
+        const p = payload as { slideId?: unknown; qid?: unknown };
+        const cur = await currentQa(ack, p?.slideId);
+        if (!cur) return;
+        if (typeof p.qid !== "string" || p.qid.length > 12) return fail(ack, "invalid");
+        if (!(await hit(redis, socket.data.tokenHash!, "vote", RATE.answerPerToken.limit * 3, RATE.answerPerToken.window))) return fail(ack, "rate_limited");
+        if (await lockedNow(sid, cur.meta, cur.slide!.id)) return fail(ack, "locked");
+        const res = await qaVote(redis, { sid, slideId: cur.slide!.id, tokenHash: socket.data.tokenHash!, qid: p.qid, expiresAt: cur.meta.expiresAt });
+        if (!res.ok) return fail(ack, res.error);
+        markDirty(sid);
+        ack({ ok: true, votes: res.votes });
+      });
+
+      /** Esito personale del quiz, disponibile solo a risposte chiuse. */
+      on(EV.myResult, async (payload, ack) => {
+        const slideId = (payload as { slideId?: unknown })?.slideId;
+        if (!socket.data.tokenHash) return fail(ack, "unauthorized");
+        const cur = await currentInteractive(sid);
+        if (!cur) return fail(ack, "ended");
+        if (!cur.slide || cur.slide.type !== "quiz" || cur.slide.id !== slideId) return fail(ack, "not_current");
+        if (!(await lockedNow(sid, cur.meta, cur.slide.id))) return fail(ack, "locked");
+        ack({ ok: true, ...(await quizResultOf(redis, sid, cur.slide.id, socket.data.tokenHash)) });
       });
 
       socket.on("disconnect", () => {
@@ -401,11 +487,28 @@ export function createRealtimeServer(opts: RealtimeOptions) {
       ack({ ok: true });
     };
 
-    const goto = async (meta: SessionMeta, activity: ActivityContent, index: number) => {
+    /**
+     * Cambio slide. Sui quiz con timer (se il facilitatore non l'ha disattivato) il timer parte
+     * da solo, moltiplicato per il fattore scelto e mai oltre i 5 minuti. Un quiz già chiuso
+     * non riparte, salvo con "Riapri" (`reopen`).
+     */
+    const goto = async (meta: SessionMeta, activity: ActivityContent, index: number, reopen = false) => {
       const i = Math.max(0, Math.min(activity.slides.length - 1, Math.floor(index)));
-      await redis.multi().hset(K.meta(sid), { index: i, timerEnd: "" }).pexpireat(K.meta(sid), meta.expiresAt).exec();
-      scheduleTimer(sid, null);
-      return activity.slides[i]!;
+      const slide = activity.slides[i]!;
+      const m = redis.multi();
+      let end: number | null = null;
+      const wasLocked = (await redis.sismember(K.locked(sid), slide.id)) === 1;
+      if (reopen) m.srem(K.locked(sid), slide.id);
+      if (slide.type === "quiz" && slide.timerSeconds && meta.quizTimerEnabled && (reopen || !wasLocked)) {
+        const now = Date.now();
+        end = now + Math.min(Math.round(slide.timerSeconds * meta.timerFactor), LIMITS.timerMaxSeconds) * 1000;
+        m.hset(K.meta(sid), { index: i, timerStart: String(now), timerEnd: String(end) });
+      } else {
+        m.hset(K.meta(sid), { index: i, timerStart: "", timerEnd: "" });
+      }
+      await m.pexpireat(K.meta(sid), meta.expiresAt).exec();
+      scheduleTimer(sid, end);
+      return slide;
     };
 
     on(EV.goto, async (payload, ack) => {
@@ -421,8 +524,7 @@ export function createRealtimeServer(opts: RealtimeOptions) {
       const index = (payload as { index?: unknown })?.index;
       if (typeof index !== "number" || !Number.isFinite(index)) return fail(ack, "invalid");
       await withMeta(ack, async (meta, activity) => {
-        const slide = await goto(meta, activity, index);
-        await redis.srem(K.locked(sid), slide.id);
+        await goto(meta, activity, index, true);
         await broadcastState(sid);
       });
     });
@@ -442,7 +544,7 @@ export function createRealtimeServer(opts: RealtimeOptions) {
       await withMeta(ack, async (meta, activity) => {
         const slide = activity.slides[meta.index];
         if (!slide || !isInteractive(slide)) return;
-        const m = redis.multi().hset(K.meta(sid), "timerEnd", "").pexpireat(K.meta(sid), meta.expiresAt);
+        const m = redis.multi().hset(K.meta(sid), { timerEnd: "", timerStart: "" }).pexpireat(K.meta(sid), meta.expiresAt);
         if (locked) m.sadd(K.locked(sid), slide.id).pexpireat(K.locked(sid), meta.expiresAt);
         else m.srem(K.locked(sid), slide.id);
         await m.exec();
@@ -453,12 +555,18 @@ export function createRealtimeServer(opts: RealtimeOptions) {
 
     on(EV.timer, async (payload, ack) => {
       const seconds = (payload as { seconds?: unknown })?.seconds;
-      if (seconds !== null && (typeof seconds !== "number" || seconds < 5 || seconds > LIMITS.timerMaxSeconds)) return fail(ack, "invalid");
+      if (seconds !== null && (typeof seconds !== "number" || seconds < LIMITS.timerMinSeconds || seconds > LIMITS.timerMaxSeconds)) {
+        return fail(ack, "invalid");
+      }
       await withMeta(ack, async (meta, activity) => {
         const slide = activity.slides[meta.index];
         if (!slide || !isInteractive(slide)) return;
-        const end = seconds === null ? null : Date.now() + Math.round(seconds) * 1000;
-        const m = redis.multi().hset(K.meta(sid), "timerEnd", end ? String(end) : "").pexpireat(K.meta(sid), meta.expiresAt);
+        const now = Date.now();
+        const end = seconds === null ? null : now + Math.round(seconds) * 1000;
+        const m = redis
+          .multi()
+          .hset(K.meta(sid), { timerStart: end ? String(now) : "", timerEnd: end ? String(end) : "" })
+          .pexpireat(K.meta(sid), meta.expiresAt);
         if (end) m.srem(K.locked(sid), slide.id);
         await m.exec();
         scheduleTimer(sid, end);
@@ -472,8 +580,16 @@ export function createRealtimeServer(opts: RealtimeOptions) {
       await withMeta(ack, async (meta, activity) => {
         const slide = activity.slides[meta.index];
         if (!slide || !isInteractive(slide)) return;
-        const end = Math.max(Date.now(), meta.timerEnd ?? Date.now()) + Math.round(seconds) * 1000;
-        await redis.multi().hset(K.meta(sid), "timerEnd", String(end)).pexpireat(K.meta(sid), meta.expiresAt).srem(K.locked(sid), slide.id).exec();
+        // Estensione: il tempo residuo non supera mai i 5 minuti.
+        const now = Date.now();
+        const end = Math.min(Math.max(now, meta.timerEnd ?? now) + Math.round(seconds) * 1000, now + LIMITS.timerMaxSeconds * 1000);
+        const start = meta.timerEnd && meta.timerEnd > now && meta.timerStart ? meta.timerStart : now;
+        await redis
+          .multi()
+          .hset(K.meta(sid), { timerStart: String(start), timerEnd: String(end) })
+          .pexpireat(K.meta(sid), meta.expiresAt)
+          .srem(K.locked(sid), slide.id)
+          .exec();
         scheduleTimer(sid, end);
         await broadcastState(sid);
       });
@@ -485,8 +601,38 @@ export function createRealtimeServer(opts: RealtimeOptions) {
       await withMeta(ack, async (meta, activity) => {
         const slide = activity.slides.find((sl) => sl.id === p.slideId);
         if (!slide || !isInteractive(slide)) return;
-        await setHidden(redis, { sid, slide: slide as InteractiveSlide, itemId: p.itemId as string, hidden: p.hidden as boolean, expiresAt: meta.expiresAt });
+        if (slide.type === "qa") await qaUpdate(redis, { sid, slideId: slide.id, qid: p.itemId as string, hidden: p.hidden as boolean, expiresAt: meta.expiresAt });
+        else await setHidden(redis, { sid, slide: slide as InteractiveSlide, itemId: p.itemId as string, hidden: p.hidden as boolean, expiresAt: meta.expiresAt });
         await flushResults(sid);
+      });
+    });
+
+    /** Q&A: segna una domanda come risposta (o la riporta in attesa). */
+    on(EV.qaMark, async (payload, ack) => {
+      const p = payload as { slideId?: unknown; qid?: unknown; answered?: unknown };
+      if (typeof p?.slideId !== "string" || typeof p.qid !== "string" || typeof p.answered !== "boolean") return fail(ack, "invalid");
+      await withMeta(ack, async (meta, activity) => {
+        const slide = activity.slides.find((sl) => sl.id === p.slideId);
+        if (!slide || slide.type !== "qa") return;
+        await qaUpdate(redis, { sid, slideId: slide.id, qid: p.qid as string, answered: p.answered as boolean, expiresAt: meta.expiresAt });
+        await flushResults(sid);
+      });
+    });
+
+    /** Timer dei quiz: disattivabile o allungabile (×1, ×1,5, ×2) — WCAG 2.2.1. */
+    on(EV.quizTimer, async (payload, ack) => {
+      const p = payload as { enabled?: unknown; factor?: unknown };
+      if (typeof p?.enabled !== "boolean" || ![1, 1.5, 2].includes(p.factor as number)) return fail(ack, "invalid");
+      await withMeta(ack, async (meta, activity) => {
+        const m = redis.multi().hset(K.meta(sid), { quizTimer: p.enabled ? "1" : "0", timerFactor: String(p.factor) });
+        const slide = activity.slides[meta.index];
+        // Disattivando il timer durante un quiz, il timer in corso si ferma.
+        if (!p.enabled && slide?.type === "quiz" && meta.timerEnd) {
+          m.hset(K.meta(sid), { timerStart: "", timerEnd: "" });
+          scheduleTimer(sid, null);
+        }
+        await m.pexpireat(K.meta(sid), meta.expiresAt).exec();
+        await broadcastState(sid);
       });
     });
 

@@ -1,21 +1,31 @@
 /*
  * Design tokens di Arthur Play — UNICO file per colori, font e spaziature.
  *
- * Font self-hosted da /public/fonts (mai da CDN). File attesi:
- *   public/fonts/ClashDisplay-Variable.woff2  (titoli)
- *   public/fonts/Satoshi-Variable.woff2       (testo)
- * Se mancano, il browser usa i font di sistema indicati come fallback.
+ * Font self-hosted da /public/fonts (mai da CDN), da fontshare.com:
+ *   ClashDisplay-Variable.woff2   titoli (pesi 200–700)
+ *   Satoshi-Variable.woff2        testo (pesi 300–900)
+ *   Satoshi-VariableItalic.woff2  testo corsivo
+ * I font di sistema indicati nelle famiglie servono solo come ripiego se il file non si carica.
  */
 @font-face {
   font-family: "Clash Display";
   src: url("/fonts/ClashDisplay-Variable.woff2") format("woff2");
   font-weight: 200 700;
+  font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: "Satoshi";
   src: url("/fonts/Satoshi-Variable.woff2") format("woff2");
   font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Satoshi";
+  src: url("/fonts/Satoshi-VariableItalic.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: italic;
   font-display: swap;
 }
 

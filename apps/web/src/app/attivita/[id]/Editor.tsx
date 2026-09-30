@@ -19,10 +19,22 @@ function blankSlide(type: SlideType): Slide {
       return { id: newId(), type, question: "", maxAnswers: 1 };
     case "wordcloud":
       return { id: newId(), type, question: "", maxEntries: 3 };
+    case "grid":
+      return { id: newId(), type, question: "", xAxis: { min: "", max: "" }, yAxis: { min: "", max: "" }, items: [opt(), opt()] };
+    case "ranking":
+      return { id: newId(), type, question: "", options: [opt(), opt(), opt()] };
+    case "points":
+      return { id: newId(), type, question: "", options: [opt(), opt(), opt()] };
+    case "qa":
+      return { id: newId(), type, question: "Avete domande?" };
+    case "quiz": {
+      const options = [opt(), opt()];
+      return { id: newId(), type, question: "", mode: "single", options, correctOptionId: options[0]!.id, acceptedAnswers: [], timerSeconds: 20 };
+    }
   }
 }
 
-const TYPES: SlideType[] = ["content", "choice", "scale", "open", "wordcloud"];
+const TYPES: SlideType[] = ["content", "choice", "scale", "open", "wordcloud", "grid", "ranking", "points", "qa", "quiz"];
 
 /** Editor base (Fase 1): sequenza di slide in form. Anteprima dal vivo in Fase 6. */
 export function Editor({ id, initial }: { id: string; initial: ActivityContent }) {
@@ -49,7 +61,11 @@ export function Editor({ id, initial }: { id: string; initial: ActivityContent }
     const res = await fetch(`/api/attivita/${id}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(content),
+      // Le righe vuote delle risposte accettate dei quiz non vengono salvate.
+      body: JSON.stringify({
+        ...content,
+        slides: content.slides.map((sl) => (sl.type === "quiz" ? { ...sl, acceptedAnswers: sl.acceptedAnswers.map((x) => x.trim()).filter(Boolean) } : sl)),
+      }),
     }).catch(() => null);
     setStatus(res?.ok ? "saved" : "error");
   };
@@ -303,7 +319,131 @@ function SlideForm({ slide, onChange }: { slide: Slide; onChange: (s: Slide) => 
           {notes}
         </div>
       );
+    case "grid":
+      return (
+        <div className="flex flex-col gap-4">
+          <TextField label={T.editor.question} value={slide.question} max={LIMITS.questionMax} onChange={(v) => onChange({ ...slide, question: v })} />
+          {(["xAxis", "yAxis"] as const).map((axis) => (
+            <fieldset key={axis}>
+              <legend className="label">{axis === "xAxis" ? T.editor.xAxis : T.editor.yAxis}</legend>
+              <div className="flex gap-3">
+                <TextField label={T.editor.axisMin} value={slide[axis].min} max={40} onChange={(v) => onChange({ ...slide, [axis]: { ...slide[axis], min: v } })} />
+                <TextField label={T.editor.axisMax} value={slide[axis].max} max={40} onChange={(v) => onChange({ ...slide, [axis]: { ...slide[axis], max: v } })} />
+              </div>
+            </fieldset>
+          ))}
+          <fieldset>
+            <legend className="label">{T.editor.items}</legend>
+            <OptionsEditor items={slide.items} label={T.editor.item} addLabel={T.editor.addItem} min={1} max={LIMITS.gridItemsMax} onChange={(items) => onChange({ ...slide, items })} />
+          </fieldset>
+          {notes}
+        </div>
+      );
+    case "ranking":
+    case "points":
+      return (
+        <div className="flex flex-col gap-4">
+          <TextField label={T.editor.question} value={slide.question} max={LIMITS.questionMax} onChange={(v) => onChange({ ...slide, question: v })} />
+          <fieldset>
+            <legend className="label">{T.editor.options}</legend>
+            <OptionsEditor
+              items={slide.options}
+              label={T.editor.option}
+              addLabel={T.editor.addOption}
+              min={2}
+              max={LIMITS.choiceOptionsMax}
+              onChange={(options) => onChange({ ...slide, options })}
+            />
+          </fieldset>
+          {notes}
+        </div>
+      );
+    case "qa":
+      return (
+        <div className="flex flex-col gap-4">
+          <TextField label={T.editor.question} value={slide.question} max={LIMITS.questionMax} onChange={(v) => onChange({ ...slide, question: v })} />
+          {notes}
+        </div>
+      );
+    case "quiz":
+      return <QuizForm slide={slide} onChange={onChange} notes={notes} />;
   }
+}
+
+function QuizForm({ slide, onChange, notes }: { slide: Extract<Slide, { type: "quiz" }>; onChange: (s: Slide) => void; notes: React.ReactNode }) {
+  const name = useId();
+  return (
+    <div className="flex flex-col gap-4">
+      <TextField label={T.editor.question} value={slide.question} max={LIMITS.questionMax} onChange={(v) => onChange({ ...slide, question: v })} />
+      <fieldset>
+        <legend className="label">{T.editor.quizMode}</legend>
+        <div className="flex gap-4">
+          {(["single", "text"] as const).map((m) => (
+            <label key={m} className="flex items-center gap-2">
+              <input
+                type="radio"
+                className="h-5 w-5 accent-brand"
+                checked={slide.mode === m}
+                onChange={() => {
+                  const options = m === "single" && slide.options.length < 2 ? [opt(), opt()] : slide.options;
+                  onChange({ ...slide, mode: m, options, correctOptionId: m === "single" ? (slide.correctOptionId ?? options[0]?.id) : slide.correctOptionId });
+                }}
+              />
+              {m === "single" ? T.editor.quizSingle : T.editor.quizText}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {slide.mode === "single" ? (
+        <fieldset>
+          <legend className="label">{T.editor.options}</legend>
+          <OptionsEditor
+            items={slide.options}
+            label={T.editor.option}
+            addLabel={T.editor.addOption}
+            min={LIMITS.choiceOptionsMin}
+            max={LIMITS.choiceOptionsMax}
+            onChange={(options) =>
+              onChange({ ...slide, options, correctOptionId: options.some((o) => o.id === slide.correctOptionId) ? slide.correctOptionId : options[0]?.id })
+            }
+          />
+          <fieldset className="mt-3">
+            <legend className="label">{T.editor.quizCorrect}</legend>
+            <div className="flex flex-col gap-1">
+              {slide.options.map((o, i) => (
+                <label key={o.id} className="flex items-center gap-2">
+                  <input type="radio" name={name} className="h-5 w-5 accent-brand" checked={slide.correctOptionId === o.id} onChange={() => onChange({ ...slide, correctOptionId: o.id })} />
+                  {T.editor.quizCorrectOf(o.label || T.editor.option(i + 1))}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </fieldset>
+      ) : (
+        <TextField
+          label={T.editor.quizAccepted}
+          value={slide.acceptedAnswers.join("\n")}
+          max={(LIMITS.quizAnswerMax + 1) * LIMITS.quizAcceptedMax}
+          multiline
+          onChange={(v) => onChange({ ...slide, acceptedAnswers: v.split("\n").slice(0, LIMITS.quizAcceptedMax) })}
+        />
+      )}
+      <Field label={T.editor.quizTimer}>
+        {(id) => (
+          <input
+            id={id}
+            type="number"
+            className="input max-w-32"
+            min={LIMITS.timerMinSeconds}
+            max={LIMITS.quizTimerMaxSeconds}
+            value={slide.timerSeconds ?? ""}
+            onChange={(e) => onChange({ ...slide, timerSeconds: e.target.value === "" ? null : Math.round(Number(e.target.value)) })}
+          />
+        )}
+      </Field>
+      {notes}
+    </div>
+  );
 }
 
 function NumberField({ label, value, max, onChange }: { label: string; value: number; max: number; onChange: (n: number) => void }) {

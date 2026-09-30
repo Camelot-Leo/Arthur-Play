@@ -1,8 +1,13 @@
 "use client";
 import { useId, useState } from "react";
-import { LIMITS, T, type Answer, type PublicInteractive } from "@arthur/shared";
+import { LIMITS, T, type PublicInteractive } from "@arthur/shared";
+import { GridInput } from "./GridInput";
+import { SubmitButton, type SubmitFn } from "./SubmitButton";
+import { PointsInput } from "./PointsInput";
+import { QuizInput } from "./QuizInput";
+import { RankingInput } from "./RankingInput";
 
-export type SubmitFn = (answer: Answer) => Promise<boolean>;
+export type { SubmitFn };
 
 /** Campo di risposta del partecipante in base al tipo di slide. */
 export function AnswerInput({ slide, onSubmit, disabled }: { slide: PublicInteractive; onSubmit: SubmitFn; disabled: boolean }) {
@@ -15,16 +20,20 @@ export function AnswerInput({ slide, onSubmit, disabled }: { slide: PublicIntera
       return <OpenInput key={slide.id} onSubmit={onSubmit} disabled={disabled} />;
     case "wordcloud":
       return <WordcloudInput key={slide.id} slide={slide} onSubmit={onSubmit} disabled={disabled} />;
+    case "grid":
+      return <GridInput key={slide.id} slide={slide} onSubmit={onSubmit} disabled={disabled} />;
+    case "ranking":
+      return <RankingInput key={slide.id} slide={slide} onSubmit={onSubmit} disabled={disabled} />;
+    case "points":
+      return <PointsInput key={slide.id} slide={slide} onSubmit={onSubmit} disabled={disabled} />;
+    case "quiz":
+      return <QuizInput key={slide.id} slide={slide} onSubmit={onSubmit} disabled={disabled} />;
+    case "qa":
+      // Il Q&A ha un pannello dedicato (QaPanel) con domande e voti.
+      return null;
   }
 }
 
-function SubmitButton({ disabled }: { disabled: boolean }) {
-  return (
-    <button type="submit" className="btn btn-primary mt-6 w-full text-lg" disabled={disabled}>
-      {T.participant.send}
-    </button>
-  );
-}
 
 function ChoiceInput({ slide, onSubmit, disabled }: { slide: Extract<PublicInteractive, { type: "choice" }>; onSubmit: SubmitFn; disabled: boolean }) {
   const [selected, setSelected] = useState<string[]>([]);

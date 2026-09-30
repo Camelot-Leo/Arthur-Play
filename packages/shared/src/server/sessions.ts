@@ -15,6 +15,9 @@ export type SessionMeta = {
   index: number;
   resultsVisible: boolean;
   timerEnd: number | null;
+  timerStart: number | null;
+  quizTimerEnabled: boolean;
+  timerFactor: number;
   expiresAt: number;
   title: string;
 };
@@ -30,6 +33,9 @@ export function parseMeta(sid: string, h: Record<string, string>): SessionMeta |
     index: Number(h.index ?? 0),
     resultsVisible: h.resultsVisible === "1",
     timerEnd: h.timerEnd ? Number(h.timerEnd) : null,
+    timerStart: h.timerStart ? Number(h.timerStart) : null,
+    quizTimerEnabled: h.quizTimer !== "0",
+    timerFactor: [1, 1.5, 2].includes(Number(h.timerFactor)) ? Number(h.timerFactor) : 1,
     expiresAt: Number(h.expiresAt),
     title: h.title ?? "",
   };
@@ -79,6 +85,9 @@ export async function createSession(
       index: 0,
       resultsVisible: "1",
       timerEnd: "",
+      timerStart: "",
+      quizTimer: "1",
+      timerFactor: "1",
       expiresAt: String(expiresAt),
       title: opts.activity.title,
     })

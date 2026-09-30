@@ -15,6 +15,10 @@ export type SessionState = {
   timerEnd: number | null;
   /** Orologio del server (epoch ms) al momento dell'invio, per calcolare il tempo residuo. */
   now: number;
+  /** Timer dei quiz: disattivabile o allungabile dal facilitatore (WCAG 2.2.1). */
+  quizTimer: { enabled: boolean; factor: number };
+  /** Soluzione del quiz, inviata solo a risposte chiuse. */
+  reveal: { correctOptionId?: string; acceptedAnswers?: string[] } | null;
 };
 
 export type ChoiceResults = { type: "choice"; respondents: number; counts: Record<string, number> };
@@ -24,7 +28,34 @@ export type OpenItem = { id: string; text: string; hidden?: boolean };
 export type OpenResults = { type: "open"; respondents: number; total: number; filtered: number; items: OpenItem[] };
 export type WordItem = { word: string; count: number; hidden?: boolean };
 export type WordcloudResults = { type: "wordcloud"; respondents: number; filtered: number; words: WordItem[] };
-export type SlideResults = ChoiceResults | ScaleResults | OpenResults | WordcloudResults;
+export type GridResults = { type: "grid"; respondents: number; points: Record<string, { x: number; y: number; count: number }> };
+export type RankingResults = { type: "ranking"; respondents: number; avgRank: Record<string, number> };
+export type PointsResults = { type: "points"; respondents: number; avg: Record<string, number> };
+export type QaItem = { id: string; text: string; votes: number; answered: boolean; hidden?: boolean };
+export type QaResults = { type: "qa"; respondents: number; filtered: number; items: QaItem[] };
+/** Quiz: i conteggi per opzione e le corrette arrivano in Proiezione solo a risposte chiuse. */
+export type QuizResults = {
+  type: "quiz";
+  respondents: number;
+  revealed: boolean;
+  correct: number;
+  counts: Record<string, number>;
+};
+export type SlideResults =
+  | ChoiceResults
+  | ScaleResults
+  | OpenResults
+  | WordcloudResults
+  | GridResults
+  | RankingResults
+  | PointsResults
+  | QaResults
+  | QuizResults;
+
+/** Elenco pubblico del Q&A inviato anche ai partecipanti (senza autori). */
+export type QaPublicMessage = { slideId: string; items: Omit<QaItem, "hidden">[] };
+export type QaStateReply = Ack<{ items: Omit<QaItem, "hidden">[]; voted: string[]; asked: number }>;
+export type QuizResultReply = Ack<{ answered: boolean; correct: boolean; points: number; total: number }>;
 
 export type ResultsMessage = { slideId: string; data: SlideResults };
 
@@ -39,6 +70,7 @@ export type ErrorCode =
   | "locked"
   | "not_current"
   | "already_answered"
+  | "limit_reached"
   | "unauthorized";
 
 export type Ack<T = object> = ({ ok: true } & T) | { ok: false; error: ErrorCode };
@@ -56,6 +88,10 @@ export const EV = {
   join: "p:join",
   resume: "p:resume",
   answer: "p:answer",
+  qaAsk: "p:qaAsk",
+  qaVote: "p:qaVote",
+  qaState: "p:qaState",
+  myResult: "p:myResult",
   // regia → server
   init: "c:init",
   goto: "c:goto",
@@ -65,10 +101,13 @@ export const EV = {
   timerAdd: "c:timerAdd",
   reopen: "c:reopen",
   hide: "c:hide",
+  qaMark: "c:qaMark",
+  quizTimer: "c:quizTimer",
   close: "c:close",
   // server → client
   state: "state",
   results: "results",
+  qa: "qa",
   presence: "presence",
   ended: "ended",
 } as const;

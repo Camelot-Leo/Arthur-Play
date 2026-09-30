@@ -9,7 +9,7 @@ Web app mobile-first di gamification per la formazione su soft skills e competen
 | Fase | Contenuto | Stato |
 |---|---|---|
 | 1 | MVP live: ingresso con codice/QR, tre viste, contenuto, scelta multipla, scala, risposta aperta, word cloud, moderazione, Privacy e cookie | ✅ |
-| 2 | Griglia 2x2, Ranking, 100 punti, Q&A, quiz a punti | — |
+| 2 | Griglia 2x2, Ranking, 100 punti, Q&A anonimo, quiz a punti, PNG del risultato | ✅ |
 | 3 | Squadre, missione collettiva, classifica opzionale | — |
 | 4 | Modalità a ritmo libero | — |
 | 5 | Funzioni AI | — |
@@ -82,16 +82,11 @@ Per un avvio di produzione in locale: `pnpm build && pnpm start`.
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | in produzione | SMTP del provider UE (proposto: Brevo, `smtp-relay.brevo.com:587`) |
 | `LOG_LEVEL` | no | Livello dei log (default `info`) |
 
-I segreti stanno solo nelle variabili d'ambiente. Il file `.env` è escluso da git. La telemetria di Next.js è disattivata dagli script (`scripts/with-env.mjs`).
+I segreti stanno solo nelle variabili d'ambiente. Il file `.env` è escluso da git. La telemetria di Next.js è disattivata dagli script (`scripts/with-env.mjs`) e dai test; per disattivarla anche lanciando `next` a mano: `npx next telemetry disable`.
 
 ### Font
 
-I font Clash Display (titoli) e Satoshi (testo) sono serviti in self-hosting da `apps/web/public/fonts/`:
-
-- `ClashDisplay-Variable.woff2`
-- `Satoshi-Variable.woff2`
-
-**Al momento i file non sono presenti**: l'interfaccia usa i font di sistema di fallback. I token di design (colori, font, spaziature) sono in `apps/web/src/styles/tokens.css`.
+I font Clash Display (titoli) e Satoshi (testo, anche corsivo) sono serviti in self-hosting da `apps/web/public/fonts/` (`ClashDisplay-Variable.woff2`, `Satoshi-Variable.woff2`, `Satoshi-VariableItalic.woff2`) e precaricati. La cartella `public/fonts/` nella root contiene tutti i file originali di Fontshare. I token di design (colori, font, spaziature) sono in `apps/web/src/styles/tokens.css`.
 
 ## Test
 
@@ -103,10 +98,17 @@ DATABASE_URL=postgres://arthur:arthur@127.0.0.1:5432/arthur_play_test pnpm db:mi
 
 | Comando | Cosa verifica |
 |---|---|
-| `pnpm test` | Vitest: filtro di moderazione (ogni voce delle liste e le sue varianti), validazione delle risposte, TTL, chiusura e scadenza delle sessioni, Redis senza persistenza, IP hashati e rate limiting, flusso realtime completo, assenza di dati dei partecipanti in log e PostgreSQL. Usa Redis DB 15 e `arthur_play_test` |
-| `pnpm e2e` | Playwright: ingresso da smartphone in meno di 15 s, risultati in Proiezione entro 1 s, moderazione, riconnessione, chiusura, **nessuna richiesta verso domini terzi**. Avvia da solo realtime e web (build di produzione); Redis DB 14. Chromium in `PLAYWRIGHT_CHROMIUM_PATH` (default `/opt/pw-browsers/chromium`) |
+| `pnpm test` | Vitest: logica di punteggio del quiz (correttezza e velocità), filtro di moderazione (ogni voce delle liste e le sue varianti), validazione delle risposte, TTL, chiusura e scadenza delle sessioni, Redis senza persistenza, IP hashati e rate limiting, flusso realtime completo, assenza di dati dei partecipanti in log e PostgreSQL. Usa Redis DB 15 e `arthur_play_test` |
+| `pnpm e2e` | Playwright: quiz, ranking, 100 punti, griglia, Q&A, PNG, timer, caricamento dei font; ingresso da smartphone in meno di 15 s, risultati in Proiezione entro 1 s, moderazione, riconnessione, chiusura, **nessuna richiesta verso domini terzi**. Avvia da solo realtime e web (build di produzione); Redis DB 14. Chromium in `PLAYWRIGHT_CHROMIUM_PATH` (default `/opt/pw-browsers/chromium`) |
 | `pnpm load` | Test di carico: 300 partecipanti simulati (`-- --participants N`), latenza delle risposte in Proiezione. Redis DB 13 |
 | `pnpm typecheck`, `pnpm lint` | TypeScript ed ESLint |
+
+## Funzioni della sessione live
+
+- **Tipi di slide**: contenuto, scelta multipla, scala, risposta aperta, word cloud, griglia 2x2, ranking, 100 punti, Q&A anonimo con upvote, quiz a punti (scelta singola o risposta scritta).
+- **Regia**: avanzamento, anteprima della slide successiva, note, mostra/nascondi risultati, blocca/riapri, contatore dei connessi, nascondi singole risposte, segna domande del Q&A come risposte, download PNG del risultato (generato nel browser).
+- **Timer**: la Regia sceglie la durata in secondi, da 5 a 300 (massimo 5 minuti), con +30 s e stop. I quiz hanno un timer proprio (max 120 s) che parte da solo; il facilitatore può disattivarlo (1000 punti per ogni risposta corretta) o allungarlo ×1,5 / ×2 (WCAG 2.2.1).
+- **Quiz**: punteggio 500 + 500 × (tempo residuo / durata), 0 se errata. La soluzione arriva ai telefoni solo a risposte chiuse, insieme all'esito personale.
 
 ## Privacy e dati
 
@@ -121,6 +123,8 @@ DATABASE_URL=postgres://arthur:arthur@127.0.0.1:5432/arthur_play_test pnpm db:mi
 | `ap:s:{sid}:p`, `:nicks` | hash del token → nickname; nickname in uso |
 | `ap:s:{sid}:online` | contatore dei connessi |
 | `ap:s:{sid}:r:{slide}:agg`, `:sub`, `:txt`, `:hidden` | aggregati; conteggio invii per hash del token (blocco doppi invii); testi **senza legame con token o nickname**; voci nascoste |
+| `ap:s:{sid}:r:{slide}:qa`, `:qav`, `:qav:{id}` | domande del Q&A **senza autore**; voti; hash dei token che hanno votato (un voto per domanda) |
+| `ap:s:{sid}:r:{slide}:quiz`, `ap:s:{sid}:score` | esito del quiz e punteggio per hash del token |
 | `ap:salt` | salt per l'hash degli IP, TTL 24 ore |
 | `ap:rl:*` | contatori di rate limiting, TTL 60 s |
 

@@ -1,9 +1,5 @@
 import { devices, expect, test, type Browser, type Page } from "@playwright/test";
-import { closeDb, createActivity, createFacilitator, createLoginToken, loginCookie, sampleActivity, trackThirdParty } from "./helpers";
-
-test.afterAll(async () => {
-  await closeDb();
-});
+import { createActivity, createFacilitator, createLoginToken, loginCookie, sampleActivity, trackThirdParty } from "./helpers";
 
 async function facilitatorPage(browser: Browser, userId: string) {
   const ctx = await browser.newContext();

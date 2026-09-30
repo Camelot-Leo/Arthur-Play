@@ -57,3 +57,49 @@ describe("schema attività", () => {
     expect(r.success).toBe(false);
   });
 });
+
+describe("validazione dei tipi della Fase 2", () => {
+  const grid: InteractiveSlide = {
+    id: "g",
+    type: "grid",
+    question: "Q",
+    xAxis: { min: "Basso", max: "Alto" },
+    yAxis: { min: "Poco", max: "Molto" },
+    items: [
+      { id: "i1", label: "Uno" },
+      { id: "i2", label: "Due" },
+    ],
+  };
+  const ranking: InteractiveSlide = {
+    id: "r",
+    type: "ranking",
+    question: "Q",
+    options: [
+      { id: "a", label: "A" },
+      { id: "b", label: "B" },
+      { id: "c", label: "C" },
+    ],
+  };
+  const points: InteractiveSlide = { ...ranking, id: "p", type: "points" } as InteractiveSlide;
+
+  it("griglia 2x2: tutti gli elementi posizionati, coordinate 0–100", () => {
+    expect(validateAnswer(grid, { positions: { i1: { x: 0, y: 100 }, i2: { x: 50, y: 50 } } }).ok).toBe(true);
+    expect(validateAnswer(grid, { positions: { i1: { x: 0, y: 100 } } }).ok).toBe(false);
+    expect(validateAnswer(grid, { positions: { i1: { x: 101, y: 0 }, i2: { x: 1, y: 1 } } }).ok).toBe(false);
+    expect(validateAnswer(grid, { positions: { i1: { x: 1, y: 1 }, i2: { x: 1, y: 1 }, x: { x: 1, y: 1 } } }).ok).toBe(false);
+  });
+  it("ranking: permutazione completa delle opzioni", () => {
+    expect(validateAnswer(ranking, { order: ["c", "a", "b"] }).ok).toBe(true);
+    expect(validateAnswer(ranking, { order: ["a", "a", "b"] }).ok).toBe(false);
+    expect(validateAnswer(ranking, { order: ["a", "b"] }).ok).toBe(false);
+    expect(validateAnswer(ranking, { order: ["a", "b", "z"] }).ok).toBe(false);
+  });
+  it("100 punti: somma esattamente 100, valori interi non negativi", () => {
+    expect(validateAnswer(points, { points: { a: 50, b: 30, c: 20 } }).ok).toBe(true);
+    expect(validateAnswer(points, { points: { a: 100 } }).ok).toBe(true);
+    expect(validateAnswer(points, { points: { a: 50, b: 30 } }).ok).toBe(false);
+    expect(validateAnswer(points, { points: { a: 120, b: -20 } }).ok).toBe(false);
+    expect(validateAnswer(points, { points: { a: 50.5, b: 49.5 } }).ok).toBe(false);
+    expect(validateAnswer(points, { points: { a: 50, z: 50 } }).ok).toBe(false);
+  });
+});

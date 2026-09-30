@@ -6,3 +6,5 @@ export * from "./moderation/filter";
 export * from "./nicknames";
 export { it as T } from "./i18n/it";
 export type { Testi } from "./i18n/it";
+export * from "./scoring/quiz";
+export * from "./export/result-svg";

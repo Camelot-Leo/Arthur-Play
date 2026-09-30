@@ -24,6 +24,16 @@ export const K = {
   txt: (sid: string, slide: string) => `ap:s:{${sid}}:r:${slide}:txt`,
   /** voci nascoste della word cloud */
   hidden: (sid: string, slide: string) => `ap:s:{${sid}}:r:${slide}:hidden`,
+  /** Q&A: id → JSON {t, a (risposta data), h (nascosta)} — senza autore */
+  qa: (sid: string, slide: string) => `ap:s:{${sid}}:r:${slide}:qa`,
+  /** Q&A: id → numero di voti */
+  qaVotes: (sid: string, slide: string) => `ap:s:{${sid}}:r:${slide}:qav`,
+  /** Q&A: hash(token) che hanno votato la domanda (un voto per token per domanda) */
+  qaVoters: (sid: string, slide: string, qid: string) => `ap:s:{${sid}}:r:${slide}:qav:${qid}`,
+  /** Quiz: hash(token) → JSON {c: corretta, p: punti} */
+  quiz: (sid: string, slide: string) => `ap:s:{${sid}}:r:${slide}:quiz`,
+  /** Punteggi dei quiz: hash(token) → punti totali */
+  score: (sid: string) => `ap:s:{${sid}}:score`,
   /** sessioni attive del facilitatore */
   userSessions: (userId: string) => `ap:u:${userId}:sessions`,
   salt: () => "ap:salt",

@@ -1,21 +1,23 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import { EV, T, isInteractive, type InteractiveSlide, type Slide } from "@arthur/shared";
+import { EV, LIMITS, T, isInteractive, toPublicSlide, type InteractiveSlide, type PublicInteractive, type Slide } from "@arthur/shared";
 import { Footer } from "@/components/Footer";
 import { QrCode } from "@/components/QrCode";
 import { TimerBadge } from "@/components/Timer";
 import { Results } from "@/components/slides/Results";
 import { ContentSlideView, SlideHeading } from "@/components/slides/SlideParts";
+import { downloadResultPng } from "@/lib/client/download-png";
 import { useLiveSession } from "@/lib/client/useLiveSession";
 import { formatCode } from "./format";
 
-const TIMER_PRESETS = [30, 60, 90, 120];
+const FACTORS = [1, 1.5, 2] as const;
 
 /** Vista Regia: controlli del facilitatore, anteprima della slide successiva, note. */
 export function ControlView({ sid, joinBase }: { sid: string; joinBase: string }) {
   const live = useLiveSession(sid, "control");
   const [busy, setBusy] = useState(false);
+  const [timerSeconds, setTimerSeconds] = useState(60);
   const run = async (event: string, payload?: unknown) => {
     setBusy(true);
     await live.send(event, payload);
@@ -90,8 +92,26 @@ export function ControlView({ sid, joinBase }: { sid: string; joinBase: string }
                   data={live.results?.slideId === current.id ? live.results.data : null}
                   variant="control"
                   onHide={(itemId, hidden) => void live.send(EV.hide, { slideId: current.id, itemId, hidden })}
+                  qaControls={{ onMark: (qid, answered) => void live.send(EV.qaMark, { slideId: current.id, qid, answered }) }}
+                  solution={current.type === "quiz" ? { correctOptionId: current.correctOptionId, acceptedAnswers: current.acceptedAnswers } : null}
                 />
               </div>
+            )}
+            {current && isInteractive(current) && live.results?.slideId === current.id && live.results.data && (
+              <button
+                type="button"
+                className="btn mt-5 min-h-10 px-3 text-sm"
+                onClick={() =>
+                  void downloadResultPng({
+                    slide: toPublicSlide(current) as PublicInteractive,
+                    data: live.results!.data!,
+                    solution: current.type === "quiz" ? { correctOptionId: current.correctOptionId, acceptedAnswers: current.acceptedAnswers } : null,
+                    filename: `risultato-slide-${index + 1}.png`,
+                  })
+                }
+              >
+                {T.results.downloadPng}
+              </button>
             )}
           </div>
 
@@ -115,13 +135,35 @@ export function ControlView({ sid, joinBase }: { sid: string; joinBase: string }
           </div>
 
           {current && isInteractive(current) && state && (
-            <fieldset className="flex flex-wrap items-center gap-2">
+            <fieldset className="flex flex-wrap items-end gap-2">
               <legend className="label">{T.control.timer}</legend>
-              {TIMER_PRESETS.map((s) => (
-                <button key={s} type="button" className="btn min-h-10 px-3 text-sm" onClick={() => run(EV.timer, { seconds: s })}>
-                  {T.control.timerStart(s)}
+              <form
+                className="flex items-end gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void run(EV.timer, { seconds: timerSeconds });
+                }}
+              >
+                <label className="text-sm">
+                  {T.control.timerSeconds}
+                  <input
+                    type="number"
+                    className="input mt-1 w-28 text-base"
+                    min={LIMITS.timerMinSeconds}
+                    max={LIMITS.timerMaxSeconds}
+                    step={1}
+                    value={timerSeconds}
+                    onChange={(e) => setTimerSeconds(Math.round(Number(e.target.value)))}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="btn min-h-12 px-3 text-sm"
+                  disabled={!(timerSeconds >= LIMITS.timerMinSeconds && timerSeconds <= LIMITS.timerMaxSeconds)}
+                >
+                  {T.control.timerGo}
                 </button>
-              ))}
+              </form>
               {state.timerEnd && (
                 <>
                   <button type="button" className="btn min-h-10 px-3 text-sm" onClick={() => run(EV.timerAdd, { seconds: 30 })}>
@@ -132,6 +174,36 @@ export function ControlView({ sid, joinBase }: { sid: string; joinBase: string }
                   </button>
                 </>
               )}
+            </fieldset>
+          )}
+
+          {state && activity?.slides.some((s) => s.type === "quiz") && (
+            <fieldset className="flex flex-wrap items-center gap-4 rounded-xl border-2 border-line p-3">
+              <legend className="px-1 font-bold">{T.control.quizTimer}</legend>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 accent-brand"
+                  checked={state.quizTimer.enabled}
+                  onChange={(e) => run(EV.quizTimer, { enabled: e.target.checked, factor: state.quizTimer.factor })}
+                />
+                {state.quizTimer.enabled ? T.control.quizTimerOn : T.control.quizTimerOff}
+              </label>
+              <label className="flex items-center gap-2">
+                {T.control.quizTimerFactor}
+                <select
+                  className="input w-36 text-base"
+                  value={state.quizTimer.factor}
+                  disabled={!state.quizTimer.enabled}
+                  onChange={(e) => run(EV.quizTimer, { enabled: state.quizTimer.enabled, factor: Number(e.target.value) })}
+                >
+                  {FACTORS.map((f) => (
+                    <option key={f} value={f}>
+                      {T.control.factor(f)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </fieldset>
           )}
         </section>

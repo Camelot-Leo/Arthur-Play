@@ -11,6 +11,14 @@ export const LIMITS = {
   choiceOptionsMin: 2,
   choiceOptionsMax: 8,
   scaleStatementsMax: 10,
+  gridItemsMax: 8,
+  gridMax: 100,
+  pointsTotal: 100,
+  qaQuestionMax: 200,
+  qaQuestionsPerPersonMax: 3,
+  quizAnswerMax: 80,
+  quizAcceptedMax: 5,
+  quizTimerMaxSeconds: 120,
   slidesMax: 100,
   titleMax: 120,
   questionMax: 200,
@@ -20,7 +28,9 @@ export const LIMITS = {
   imageAltMax: 200,
   imageUploadMaxBytes: 5 * 1024 * 1024,
   imageMaxSide: 1600,
-  timerMaxSeconds: 900,
+  timerMinSeconds: 5,
+  /** Durata massima del timer: 5 minuti (anche dopo le estensioni). */
+  timerMaxSeconds: 300,
 } as const;
 
 /** Durata massima di una sessione live: 24 ore. */

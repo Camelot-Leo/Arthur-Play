@@ -11,6 +11,7 @@ import {
   type AnswerReply,
   type ErrorCode,
   type JoinReply,
+  type QaPublicMessage,
   type SessionState,
 } from "@arthur/shared";
 import { Footer } from "@/components/Footer";
@@ -19,6 +20,10 @@ import { ContentSlideView, SlideHeading } from "@/components/slides/SlideParts";
 import { clearToken, readToken, saveToken } from "@/lib/client/participant-token";
 import { connectRealtime, emitAck } from "@/lib/client/realtime";
 import { AnswerInput } from "./Inputs";
+import { QaPanel } from "./QaPanel";
+import { QuizFeedback } from "./QuizFeedback";
+
+export type Request = <T>(event: string, payload?: unknown) => Promise<T | null>;
 
 type Phase = "connecting" | "notfound" | "nickname" | "live" | "ended";
 
@@ -34,6 +39,7 @@ export function ParticipantApp({ code }: { code: string }) {
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const socketRef = useRef<Socket | null>(null);
+  const [qa, setQa] = useState<QaPublicMessage | null>(null);
   // Risposte già inviate alla slide corrente, note all'ingresso/riconnessione (lo stato arriva subito dopo).
   const pendingAnswered = useRef<number | null>(null);
 
@@ -83,6 +89,7 @@ export function ParticipantApp({ code }: { code: string }) {
         setAnswered((a) => ({ ...a, [st.slide.id]: Math.max(pending, a[st.slide.id] ?? 0) }));
       }
     });
+    socket.on(EV.qa, (msg: QaPublicMessage) => setQa(msg));
     socket.on(EV.ended, () => {
       clearToken(code);
       setPhase("ended");
@@ -92,6 +99,12 @@ export function ParticipantApp({ code }: { code: string }) {
       socket.disconnect();
     };
   }, [code, onJoined]);
+
+  const request: Request = useCallback(async <T,>(event: string, payload?: unknown) => {
+    const socket = socketRef.current;
+    if (!socket?.connected) return null;
+    return emitAck<T>(socket, event, payload).catch(() => null);
+  }, []);
 
   const join = async (nick: string) => {
     const socket = socketRef.current;
@@ -158,6 +171,8 @@ export function ParticipantApp({ code }: { code: string }) {
             onSubmit={submit}
             sending={sending}
             error={error}
+            request={request}
+            qa={qa?.slideId === state.slide.id ? qa.items : null}
           />
         )}
       </main>
@@ -213,7 +228,15 @@ function NicknameForm({ onSubmit, busy, error }: { onSubmit: (n: string) => void
   );
 }
 
-function LiveSlide(props: { state: SessionState; answered: number; onSubmit: (a: Answer) => Promise<boolean>; sending: boolean; error: string }) {
+function LiveSlide(props: {
+  state: SessionState;
+  answered: number;
+  onSubmit: (a: Answer) => Promise<boolean>;
+  sending: boolean;
+  error: string;
+  request: Request;
+  qa: QaPublicMessage["items"] | null;
+}) {
   const { state, answered, onSubmit, sending, error } = props;
   const slide = state.slide;
   if (slide.type === "content") {
@@ -224,21 +247,32 @@ function LiveSlide(props: { state: SessionState; answered: number; onSubmit: (a:
       </div>
     );
   }
+  if (slide.type === "qa") {
+    return (
+      <section key={slide.id} className="animate-slide-in flex flex-col gap-5" aria-labelledby="domanda">
+        <SlideHeading slide={slide} size="participant" id="domanda" />
+        <QaPanel slideId={slide.id} locked={state.locked} request={props.request} liveItems={props.qa} />
+      </section>
+    );
+  }
   const max = slide.type === "open" ? slide.maxAnswers : 1;
   const done = answered >= max;
+  const quizLocked = slide.type === "quiz" && state.locked;
   return (
     <section key={slide.id} className="animate-slide-in flex flex-col gap-5" aria-labelledby="domanda">
       <div className="flex items-start justify-between gap-4">
         <SlideHeading slide={slide} size="participant" id="domanda" />
         <TimerBadge timerEnd={state.timerEnd} now={state.now} />
       </div>
-      {state.locked ? (
+      {quizLocked ? (
+        <QuizFeedback key={`${slide.id}-fb`} slide={slide} reveal={state.reveal} request={props.request} />
+      ) : state.locked ? (
         <p role="status" className="rounded-2xl bg-soft p-4 text-lg font-bold">
           {answered > 0 ? T.participant.sent : T.participant.locked}
         </p>
       ) : done ? (
         <p role="status" className="rounded-2xl bg-black p-4 text-lg font-bold text-white">
-          {T.participant.sent}
+          {slide.type === "quiz" ? T.participant.quizWait : T.participant.sent}
         </p>
       ) : (
         <>

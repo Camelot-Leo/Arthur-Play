@@ -55,7 +55,9 @@ export function ProjectionView({ sid, joinBase }: { sid: string; joinBase: strin
                   <div className="min-h-0 flex-1 overflow-hidden">
                     <Results
                       slide={slide}
-                      data={live.results?.slideId === slide.id ? live.results.data : live.state?.resultsVisible ? { ...emptyResults(slide) } : null}
+                      data={live.results?.slideId === slide.id ? live.results.data : null}
+                      hidden={!live.state?.resultsVisible}
+                      solution={live.state?.reveal}
                       variant="projection"
                     />
                   </div>
@@ -70,15 +72,3 @@ export function ProjectionView({ sid, joinBase }: { sid: string; joinBase: strin
   );
 }
 
-function emptyResults(slide: PublicInteractive) {
-  switch (slide.type) {
-    case "choice":
-      return { type: "choice" as const, respondents: 0, counts: {} };
-    case "scale":
-      return { type: "scale" as const, respondents: 0, stats: {} };
-    case "open":
-      return { type: "open" as const, respondents: 0, total: 0, filtered: 0, items: [] };
-    case "wordcloud":
-      return { type: "wordcloud" as const, respondents: 0, filtered: 0, words: [] };
-  }
-}

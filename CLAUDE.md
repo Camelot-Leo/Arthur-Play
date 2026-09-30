@@ -36,8 +36,9 @@ Interfaccia interamente in italiano. Questo file va aggiornato alla fine di ogni
 - **Immagini**: in PostgreSQL, ridimensionate a max 1600 px, WebP, EXIF rimossi, servite da `/api/immagini/{id}`; alt obbligatorio.
 - **Moderazione**: normalizzazione (minuscole, accenti, 4→a 3→e 0→o 1→i @→a $→s, rimozione spazi e punteggiatura interni); modalità per termine `contains` (default ≥ 5 caratteri) o `word`. Risposte filtrate mai in Proiezione né all'AI; in Regia solo il conteggio.
 - **Quiz**: corretta = 500 + 500 × (tempo residuo / totale); errata = 0; timer disattivato → 1000. Timer disattivabile, moltiplicabile (×1,5, ×2), estendibile (WCAG 2.2.1).
+- **Timer della Regia** (deciso dopo la Fase 1): durata libera scelta dal facilitatore, da 5 a **300 secondi** (max 5 minuti); anche le estensioni (+30 s) non portano mai il tempo residuo oltre i 5 minuti. Timer dei quiz nell'editor: max 120 s (×2 = 240 s).
 - **Log**: nessun log di accesso; `pino` con redazione; errori registrati solo con tipo e stack.
-- **Design**: token in `apps/web/src/styles/tokens.css`. Bianco, nero, rosso `#FF3A20`; Clash Display (titoli) e Satoshi (testo) self-hosted da `public/fonts/` con fallback di sistema. **Font non ancora presenti**: si usa il fallback.
+- **Design**: token in `apps/web/src/styles/tokens.css`. Bianco, nero, rosso `#FF3A20`; Clash Display (titoli) e Satoshi (testo) self-hosted da `public/fonts/` con fallback di sistema. Font presenti: file woff2 variabili in `apps/web/public/fonts/` (copiati da `public/fonts/` della root, caricati su `main`), precaricati nel layout. I font di sistema restano solo come ripiego tecnico in CSS.
 
 ## Dipendenze approvate
 
@@ -51,7 +52,7 @@ Senza dipendenze: grafici SVG, export PNG (SVG → canvas), suoni Web Audio, ani
 
 - [x] Fase 0 — Piano approvato
 - [x] Fase 1 — MVP live (vedi note sotto)
-- [ ] Fase 2 — Tipi di slide restanti e quiz
+- [x] Fase 2 — Tipi di slide restanti e quiz
 - [ ] Fase 3 — Gamification
 - [ ] Fase 4 — Ritmo libero
 - [ ] Fase 5 — Funzioni AI
@@ -66,3 +67,19 @@ Senza dipendenze: grafici SVG, export PNG (SVG → canvas), suoni Web Audio, ani
 - Ogni scrittura su una chiave di sessione in Redis deve essere accompagnata da `PEXPIREAT` alla scadenza della sessione, così nessuna chiave può sopravvivere senza TTL.
 - Il testo delle risposte filtrate non viene salvato: si incrementa solo il contatore `filtered`.
 - Nessun pacchetto aggiunto oltre l'elenco approvato (`server-only` evitato di proposito). `@arthur/db`, `@arthur/shared` e `socket.io-client` sono devDependency della root per test e2e e di carico.
+
+## Note operative (Fase 2)
+
+- Nuovi tipi: `grid`, `ranking`, `points`, `qa`, `quiz` (schemi in `packages/shared/src/slides/schema.ts`, validazione in `answers.ts`, punteggio in `scoring/quiz.ts`).
+- Quiz: la soluzione non è mai nella slide pubblica (`toPublicSlide`); arriva ai partecipanti in `SessionState.reveal` solo a risposte chiuse. Esito personale con `p:myResult`, solo a risposte chiuse. Punteggi nello zset `ap:s:{sid}:score` (hash del token, con TTL). Classifica: Fase 3.
+- Timer dei quiz: parte da solo entrando nella slide, se attivo; `c:quizTimer` lo disattiva o moltiplica. Disattivandolo durante una domanda il timer in corso si ferma e le risposte successive valgono 1000.
+- Q&A: domande senza autore (`:qa`), voti in `:qav` e set dei votanti `:qav:{id}` (hash dei token), max 3 domande a testa. I partecipanti ricevono l'elenco pubblico (evento `qa`) per votare: è l'unica eccezione alla regola "i partecipanti non ricevono i risultati altrui".
+- Export PNG: `resultSvg` (puro, in `packages/shared/src/export/`) → canvas nel browser (`apps/web/src/lib/client/download-png.ts`). Esclude sempre le voci nascoste.
+- Dipendenze aggiunte (già approvate): `@dnd-kit/core`, `@dnd-kit/sortable`. `@dnd-kit/utilities` arriva come dipendenza transitiva, non è importato direttamente.
+- Telemetria Next: disattivata dagli script (`with-env.mjs`), dalla config Playwright e sulla macchina di sviluppo (`next telemetry disable`); test di regressione in `packages/shared/test/no-telemetry.test.ts`.
+
+## Punti aperti da ricordare
+
+- **Invio email reale** (magic link via SMTP Brevo): non ancora provato, mancano le credenziali. Da trattare in seguito su richiesta dell'utente.
+- **Testo della pagina Privacy e cookie**: in attesa del testo fornito dall'utente (ora segnaposto).
+- `public/fonts/` nella root (caricata su `main`) è la sorgente dei font; l'app usa le copie in `apps/web/public/fonts/`. Non eliminare nulla senza chiedere.
