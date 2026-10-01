@@ -9,3 +9,7 @@ coverage/
 test-results/
 playwright-report/
 next-env.d.ts
+
+# File generati da `next dev` (Next 16) prima di agentRules: false; non fanno parte del progetto
+apps/web/AGENTS.md
+apps/web/CLAUDE.md
