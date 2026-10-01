@@ -1,0 +1,213 @@
+{
+  "formato": "arthur-play/attivita",
+  "versione": 1,
+  "attivita": {
+    "title": "Demo Arthur Play — Lavorare in squadra",
+    "description": "Attività dimostrativa con tutti i tipi di slide, da importare e provare.",
+    "slides": [
+      {
+        "id": "benvenuti",
+        "type": "content",
+        "title": "Benvenuti!",
+        "body": "Oggi esploriamo insieme cosa rende efficace una squadra. Entrate dal telefono con il codice sullo schermo.",
+        "notes": "Mostrare il QR e attendere che entrino tutti."
+      },
+      {
+        "id": "scelta",
+        "type": "choice",
+        "question": "Preferisci lavorare da solo o in gruppo?",
+        "multiple": false,
+        "options": [
+          {
+            "id": "a",
+            "label": "Da solo"
+          },
+          {
+            "id": "b",
+            "label": "In gruppo"
+          },
+          {
+            "id": "c",
+            "label": "Dipende dal compito"
+          }
+        ]
+      },
+      {
+        "id": "parola",
+        "type": "wordcloud",
+        "question": "Una parola per descrivere una buona squadra",
+        "maxEntries": 3
+      },
+      {
+        "id": "scala",
+        "type": "scale",
+        "question": "Quanto sei d'accordo?",
+        "max": 5,
+        "minLabel": "Per niente",
+        "maxLabel": "Del tutto",
+        "statements": [
+          {
+            "id": "s1",
+            "label": "Nel mio gruppo mi sento ascoltato"
+          },
+          {
+            "id": "s2",
+            "label": "So chiedere aiuto quando serve"
+          }
+        ]
+      },
+      {
+        "id": "aperta",
+        "type": "open",
+        "question": "Racconta un momento in cui il tuo gruppo ha funzionato bene",
+        "maxAnswers": 2,
+        "notes": "Con almeno 10 risposte si possono raggruppare in temi (se l'AI è attiva)."
+      },
+      {
+        "id": "griglia",
+        "type": "grid",
+        "question": "Dove collochi queste attività?",
+        "xAxis": {
+          "min": "Poco utile",
+          "max": "Molto utile"
+        },
+        "yAxis": {
+          "min": "Facile",
+          "max": "Difficile"
+        },
+        "items": [
+          {
+            "id": "g1",
+            "label": "Riunioni"
+          },
+          {
+            "id": "g2",
+            "label": "Chat di gruppo"
+          },
+          {
+            "id": "g3",
+            "label": "Dividersi i compiti"
+          }
+        ]
+      },
+      {
+        "id": "ordina",
+        "type": "ranking",
+        "question": "Ordina dalla più alla meno importante",
+        "options": [
+          {
+            "id": "r1",
+            "label": "Fiducia"
+          },
+          {
+            "id": "r2",
+            "label": "Comunicazione"
+          },
+          {
+            "id": "r3",
+            "label": "Obiettivi chiari"
+          },
+          {
+            "id": "r4",
+            "label": "Ruoli definiti"
+          }
+        ]
+      },
+      {
+        "id": "punti",
+        "type": "points",
+        "question": "Distribuisci 100 punti: cosa conta di più in un progetto?",
+        "options": [
+          {
+            "id": "p1",
+            "label": "Idee"
+          },
+          {
+            "id": "p2",
+            "label": "Organizzazione"
+          },
+          {
+            "id": "p3",
+            "label": "Clima nel gruppo"
+          }
+        ]
+      },
+      {
+        "id": "quiz1",
+        "type": "quiz",
+        "question": "Qual è la fase del gruppo in cui emergono i conflitti?",
+        "mode": "single",
+        "options": [
+          {
+            "id": "q1",
+            "label": "Forming"
+          },
+          {
+            "id": "q2",
+            "label": "Storming"
+          },
+          {
+            "id": "q3",
+            "label": "Norming"
+          },
+          {
+            "id": "q4",
+            "label": "Performing"
+          }
+        ],
+        "correctOptionId": "q2",
+        "acceptedAnswers": [],
+        "timerSeconds": 30,
+        "explanation": "Nel modello di Tuckman lo storming è la fase in cui emergono differenze e conflitti."
+      },
+      {
+        "id": "quiz2",
+        "type": "quiz",
+        "question": "Come si chiama chi guida e facilita il lavoro del gruppo? (una parola)",
+        "mode": "text",
+        "options": [],
+        "acceptedAnswers": [
+          "facilitatore",
+          "facilitatrice",
+          "leader"
+        ],
+        "timerSeconds": 30,
+        "explanation": "Facilitatore o leader: chi aiuta il gruppo a raggiungere l'obiettivo."
+      },
+      {
+        "id": "domande",
+        "type": "qa",
+        "question": "Avete domande? Votate quelle che vi interessano"
+      },
+      {
+        "id": "fine",
+        "type": "content",
+        "title": "Grazie!",
+        "body": "I risultati di oggi si cancellano automaticamente alla chiusura della sessione."
+      }
+    ],
+    "settings": {
+      "leaderboard": false,
+      "moderation": true,
+      "teams": {
+        "enabled": false,
+        "mode": "auto",
+        "names": [
+          "Squadra Rossa",
+          "Squadra Blu"
+        ]
+      },
+      "mission": {
+        "enabled": true,
+        "type": "answers",
+        "target": 20,
+        "label": "Raggiungete 20 risposte tutti insieme"
+      }
+    },
+    "audience": "studenti",
+    "tags": [
+      "lavoro di squadra",
+      "demo"
+    ]
+  }
+}

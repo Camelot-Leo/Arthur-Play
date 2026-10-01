@@ -1,0 +1,15 @@
+# Esempio di reverse proxy (produzione, VPS in UE).
+# - "/" → Next.js, "/rt" → servizio realtime: tutto sullo stesso dominio.
+# - Nessun log di accesso: Caddy non registra le richieste se non si abilita "log".
+# - Con TRUST_PROXY=1, app e realtime usano X-Forwarded-For SOLO per il rate limiting (IP hashato).
+arthurplay.example.it {
+	encode zstd gzip
+
+	handle /rt* {
+		reverse_proxy 127.0.0.1:4000
+	}
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+	# Nessuna direttiva "log": i log di accesso restano disattivati.
+}

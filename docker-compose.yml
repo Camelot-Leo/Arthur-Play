@@ -1,0 +1,18 @@
+# Facoltativo: PostgreSQL e Redis in container per lo sviluppo locale.
+# Redis usa infra/redis/redis.conf: NESSUNA persistenza su disco (niente RDB, niente AOF, niente volume).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: arthur
+      POSTGRES_PASSWORD: arthur
+      POSTGRES_DB: arthur_play
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+  redis:
+    image: redis:7
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: ["./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro"]
+volumes:
+  pgdata:

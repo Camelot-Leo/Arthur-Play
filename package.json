@@ -1,0 +1,35 @@
+{
+  "name": "arthur-play",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @arthur/web --filter @arthur/realtime dev",
+    "build": "pnpm --filter @arthur/web build",
+    "start": "pnpm --parallel --filter @arthur/web --filter @arthur/realtime start",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm --filter @arthur/web lint",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "load": "tsx tests/load/load.ts",
+    "db:generate": "pnpm --filter @arthur/db generate",
+    "db:migrate": "pnpm --filter @arthur/db migrate",
+    "db:seed": "pnpm --filter @arthur/db seed",
+    "admin:create": "pnpm --filter @arthur/db admin:create",
+    "services:start": "bash scripts/services-start.sh",
+    "load:teams": "tsx tests/load/load.ts --teams 4"
+  },
+  "devDependencies": {
+    "@arthur/db": "workspace:*",
+    "@arthur/shared": "workspace:*",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^22",
+    "socket.io-client": "^4.8.4",
+    "tsx": "^4.23.0",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.0"
+  },
+  "type": "module"
+}

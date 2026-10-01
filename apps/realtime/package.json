@@ -1,0 +1,23 @@
+{
+  "name": "@arthur/realtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ../../scripts/with-env.mjs tsx watch src/main.ts",
+    "start": "node ../../scripts/with-env.mjs tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@arthur/db": "workspace:*",
+    "@arthur/shared": "workspace:*",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "ioredis": "^5.11.1",
+    "jose": "^6.2.12",
+    "pino": "^10.3.1",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
+}
