@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
-import { ASYNC_SESSION_MAX_SECONDS, LIMITS, T } from "@arthur/shared";
+import { ASYNC_SESSION_MAX_SECONDS, IMPORT_MAX_BYTES, LIMITS, T } from "@arthur/shared";
 
 async function post(url: string, body?: unknown) {
   const res = await fetch(url, {
@@ -60,6 +60,111 @@ export function StartButton({ activityId }: { activityId: string }) {
         </p>
       )}
     </>
+  );
+}
+
+/** Copia personale (anche di un'attività della libreria condivisa); apre subito l'editor. */
+export function DuplicateButton({ activityId }: { activityId: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className="btn"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setError(false);
+          const res = await post(`/api/attivita/${activityId}/duplica`);
+          if (res?.id) router.push(`/attivita/${res.id}`);
+          else {
+            setBusy(false);
+            setError(true);
+          }
+        }}
+      >
+        {T.activities.duplicate}
+      </button>
+      {error && (
+        <p role="alert" className="w-full font-bold text-brand-ink">
+          {T.activities.actionError}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Solo admin: pubblica nella libreria condivisa o ritira. */
+export function LibraryButton({ activityId, target }: { activityId: string; target: "shared" | "personal" }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className="btn"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setError(false);
+          const res = await post(`/api/attivita/${activityId}/libreria`, { library: target });
+          setBusy(false);
+          if (res?.ok) router.refresh();
+          else setError(true);
+        }}
+      >
+        {target === "shared" ? T.activities.share : T.activities.unshare}
+      </button>
+      {error && (
+        <p role="alert" className="w-full font-bold text-brand-ink">
+          {T.activities.actionError}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Importa un file JSON esportato: il file è letto nel browser e validato dal server. */
+export function ImportButton() {
+  const router = useRouter();
+  const id = useId();
+  const [error, setError] = useState(false);
+  return (
+    <div className="flex flex-col">
+      <label className="btn cursor-pointer focus-within:outline focus-within:outline-2 focus-within:outline-offset-2">
+        {T.activities.importJson}
+        <input
+          type="file"
+          accept="application/json,.json"
+          className="sr-only"
+          aria-describedby={`${id}-hint`}
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            setError(false);
+            if (file.size > IMPORT_MAX_BYTES) return setError(true);
+            const res = await fetch("/api/attivita/importa", { method: "POST", headers: { "content-type": "application/json" }, body: await file.text() }).catch(
+              () => null,
+            );
+            const body = (await res?.json().catch(() => null)) as { id?: string } | null;
+            if (body?.id) router.push(`/attivita/${body.id}`);
+            else setError(true);
+          }}
+        />
+      </label>
+      <span id={`${id}-hint`} className="sr-only">
+        {T.activities.importHint}
+      </span>
+      {error && (
+        <p role="alert" className="mt-1 max-w-xs font-bold text-brand-ink">
+          {T.activities.importError}
+        </p>
+      )}
+    </div>
   );
 }
 

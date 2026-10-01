@@ -11,6 +11,7 @@ const testEnv = {
   WEB_ORIGIN: "http://localhost:3000",
   REALTIME_SECRET: "e2e-secret-e2e-secret-e2e-secret-e2e-secret",
   NEXT_TELEMETRY_DISABLED: "1",
+  MAIL_CONSOLE: "1",
 };
 Object.assign(process.env, testEnv);
 

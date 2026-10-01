@@ -6,8 +6,8 @@ import { env } from "./env";
  * In sviluppo, senza SMTP_HOST, il messaggio viene stampato in console.
  */
 export async function sendMail(to: string, subject: string, text: string): Promise<void> {
-  if (!env.smtp.host) {
-    if (env.isProd) throw new Error("SMTP non configurato");
+  if (!env.smtp.host || env.mailConsole) {
+    if (env.isProd && !env.mailConsole) throw new Error("SMTP non configurato");
     console.log(`\n[email di sviluppo] ${subject}\n${text}\n`);
     return;
   }

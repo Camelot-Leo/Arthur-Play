@@ -56,7 +56,7 @@ Senza dipendenze: grafici SVG, export PNG (SVG → canvas), suoni Web Audio, ani
 - [x] Fase 3 — Gamification
 - [x] Fase 4 — Ritmo libero
 - [x] Fase 5 — Funzioni AI
-- [ ] Fase 6 — Editor completo, libreria condivisa, admin
+- [x] Fase 6 — Editor completo, libreria condivisa, admin
 
 ## Note operative (Fase 1)
 
@@ -101,15 +101,26 @@ Senza dipendenze: grafici SVG, export PNG (SVG → canvas), suoni Web Audio, ani
 
 ## Note operative (Fase 5)
 
-- Pacchetto `packages/ai`: `config.ts` (`AI_ENABLED=1` attiva, default spento; `AI_MODEL` default `claude-opus-5-5`), `transport.ts` (unico punto che chiama l'SDK: `beta.messages.parse` con output strutturato zod, `fallbacks: "default"`; rifiuto → `AiRefusedError`), `documents.ts` (unpdf/mammoth in memoria, max 10 MB e 120.000 caratteri, nessun troncamento silenzioso), `generate.ts`, `themes.ts`.
+- Pacchetto `packages/ai`: `config.ts` (`AI_ENABLED=1` attiva, default spento; `AI_MODEL` default `claude-sonnet-5-5`, `AI_FALLBACK_MODELS` default `claude-sonnet-5,claude-haiku-4-5`; decisione dell'utente dopo la Fase 5), `transport.ts` (unico punto che chiama l'SDK: `messages.parse` con output strutturato zod; rifiuto → `AiRefusedError`; `withFallbacks` prova le riserve in ordine per rifiuto, output non valido, 404/408/429/5xx o errori di rete, non per 400/401/403; `effort` non inviato a Haiku 4.5), `documents.ts` (unpdf/mammoth in memoria, max 10 MB e 120.000 caratteri, nessun troncamento silenzioso), `generate.ts`, `themes.ts`.
 - Payload verso l'AI: `AiRequest` = {model, system, user, effort, maxTokens}. Generazione: solo argomento o testo del documento. Temi: `collectThemeInputs` legge solo `:txt` non nascosti (aperte) o voci non nascoste (word cloud); le filtrate non sono mai salvate. Minimo 10 risposte (`MIN_THEME_RESPONSES`).
 - Etichette ed esempi dei temi passano dal filtro di moderazione; temi in `ap:s:{sid}:r:{slide}:themes` (`SET PXAT` alla scadenza). La Regia li mostra con `c:themes` ({slideId, visible}); `goto` li nasconde; arrivano in `results.themes` solo a Proiezione/Regia.
 - API: `POST /api/ai/genera` (multipart; crea una nuova attività bozza) e `POST /api/sessioni/[sid]/temi`. Rate limit `aiPerUser` 20/10 min. Pagina `/attivita/genera` → 404 con AI spenta.
 - I test usano un trasporto simulato (`packages/ai/test/ai.test.ts`); nessuna chiamata reale. L'API Anthropic non ha `inference_geo` UE (solo `us`/`global`).
 - Dipendenze aggiunte (già approvate): `@anthropic-ai/sdk`, `unpdf`, `mammoth`.
 
+## Note operative (Fase 6)
+
+- Nessuna migrazione: lo schema `0000_iniziale` aveva già `library`, `audience`, `tags` e i token `invite`.
+- Permessi in `packages/shared/src/library.ts` (puri, testati): `canView` (proprie + condivise), `canEdit` (personali solo del proprietario; condivise solo admin, anche se il proprietario era un facilitatore), `canSetLibrary` (solo admin: pubblica le proprie personali, ritira le condivise). Lato server `apps/web/src/lib/server/activities.ts`: la query di modifica ripete il controllo nel `WHERE` (`editableBy`). Risposte: attività non visibile → 404; visibile ma non modificabile → 403; pagine admin → 404 per i non admin, API admin → 403.
+- Le sessioni si possono avviare anche da attività condivise (snapshot in Redis come sempre).
+- `PUT /api/attivita/[id]` riceve `{content, meta}` (`activityDocumentSchema`: id delle slide unici, tag normalizzati). Nuove API: `POST .../duplica`, `GET .../esporta`, `POST .../libreria` (admin), `POST /api/attivita/importa`, `POST /api/admin/inviti`, `POST /api/admin/moderazione`, `DELETE /api/admin/moderazione/[id]`.
+- Esportazione `{formato: "arthur-play/attivita", versione: 1, attivita: {title, description?, slides, settings, audience, tags}}`; importazione con `parseImport` (campi estranei scartati dagli schemi zod).
+- Anteprima dal vivo: `components/editor/SlidePreview.tsx` riusa `ContentSlideView`, `SlideHeading` e `AnswerInput`; contenuto `inert`, nessun invio. La Proiezione è disegnata a 1280×720 e ridimensionata.
+- Inviti: `inviteUser` in transazione (account + token + email); `MAIL_CONSOLE=1` solo per e2e (build di produzione senza SMTP).
+- Non realizzato perché non richiesto: eliminazione di attività, disattivazione degli account dal pannello (la colonna `disabled_at` esiste), proposta di attività alla libreria da parte dei facilitatori.
+
 ## Punti aperti da ricordare
 
 - **Invio email reale** (magic link via SMTP Brevo): non ancora provato, mancano le credenziali. Da trattare in seguito su richiesta dell'utente.
-- **Testo della pagina Privacy e cookie**: in attesa del testo fornito dall'utente (ora segnaposto).
+- **Testo della pagina Privacy e cookie**: in attesa del testo fornito dall'utente (ora segnaposto). Deve citare anche le funzioni AI (elaborazione possibile fuori UE).
 - `public/fonts/` nella root (caricata su `main`) è la sorgente dei font; l'app usa le copie in `apps/web/public/fonts/`. Non eliminare nulla senza chiedere.

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ASYNC_SESSION_MAX_SECONDS, LIMITS, activityContentSchema } from "@arthur/shared";
 import { RATE, createSession, hit } from "@arthur/shared/server";
-import { getOwned, toContent } from "@/lib/server/activities";
+import { getViewable, toContent } from "@/lib/server/activities";
 import { getCurrentUser } from "@/lib/server/auth";
 import { fail, handle, json, readJson } from "@/lib/server/http";
 import { sameOrigin } from "@/lib/server/request";
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     if (!(await hit(redis(), user.id, "start", RATE.startPerUser.limit, RATE.startPerUser.window))) return fail(429, "rate_limited");
     const body = bodySchema.safeParse(await readJson(req));
     if (!body.success) return fail(400, "invalid");
-    const row = await getOwned(body.data.activityId, user.id);
+    const row = await getViewable(body.data.activityId, user);
     if (!row) return fail(404, "not_found");
     const content = activityContentSchema.safeParse(toContent(row));
     if (!content.success) return fail(400, "invalid");

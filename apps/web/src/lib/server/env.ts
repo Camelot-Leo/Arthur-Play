@@ -12,6 +12,8 @@ export const env = {
     from: process.env.MAIL_FROM ?? "Arthur Play <no-reply@localhost>",
   },
   isProd: process.env.NODE_ENV === "production",
+  /** Solo test e sviluppo: email stampate in console anche con la build di produzione. Mai in produzione. */
+  mailConsole: process.env.MAIL_CONSOLE === "1",
 };
 
 export function requireRealtimeSecret(): string {

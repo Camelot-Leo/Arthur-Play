@@ -1,15 +1,18 @@
 import { DEFAULT_SETTINGS } from "@arthur/shared";
 import type { BrowserContext, Page, Request } from "@playwright/test";
-import { activities, authSessions, createDb, loginTokens, users } from "@arthur/db";
+import { activities, authSessions, createDb, eq, loginTokens, moderationTerms, sql, users } from "@arthur/db";
 import type { ActivityContent } from "@arthur/shared";
 import { randomToken, sha256 } from "@arthur/shared/server";
 
 const { db, client } = createDb(process.env.DATABASE_URL, 2);
 export const closeDb = () => client.end();
 
-export async function createFacilitator() {
-  const email = `facilitatore-${randomToken(6).toLowerCase()}@example.it`;
-  const [user] = await db.insert(users).values({ email, name: "Facilitatore di prova", role: "facilitator" }).returning({ id: users.id });
+export async function createFacilitator(role: "facilitator" | "admin" = "facilitator") {
+  const email = `${role === "admin" ? "admin" : "facilitatore"}-${randomToken(6).toLowerCase()}@example.it`;
+  const [user] = await db
+    .insert(users)
+    .values({ email, name: role === "admin" ? "Admin di prova" : "Facilitatore di prova", role })
+    .returning({ id: users.id });
   return { id: user!.id, email };
 }
 
@@ -26,12 +29,47 @@ export async function createLoginToken(userId: string) {
   return token;
 }
 
-export async function createActivity(ownerId: string, content: ActivityContent) {
+export async function createActivity(
+  ownerId: string,
+  content: ActivityContent,
+  opts: { library?: "personal" | "shared"; audience?: "studenti" | "docenti" | "entrambi"; tags?: string[] } = {},
+) {
   const [row] = await db
     .insert(activities)
-    .values({ ownerId, title: content.title, slides: content.slides, settings: content.settings })
+    .values({ ownerId, title: content.title, slides: content.slides, settings: content.settings, ...opts })
     .returning({ id: activities.id });
   return row!.id;
+}
+
+export async function getActivityRow(id: string) {
+  const [row] = await db.select().from(activities).where(eq(activities.id, id));
+  return row ?? null;
+}
+
+export async function activitiesOf(ownerId: string) {
+  return db.select().from(activities).where(eq(activities.ownerId, ownerId));
+}
+
+export async function findUser(email: string) {
+  const [row] = await db.select().from(users).where(sql`lower(${users.email}) = ${email.toLowerCase()}`);
+  if (!row) return null;
+  const tokens = await db.select({ purpose: loginTokens.purpose, expiresAt: loginTokens.expiresAt }).from(loginTokens).where(eq(loginTokens.userId, row.id));
+  return { ...row, tokens };
+}
+
+export async function createTerm(term: string) {
+  const [row] = await db.insert(moderationTerms).values({ lang: "it", term, match: "word" }).returning({ id: moderationTerms.id });
+  return row!.id;
+}
+
+export async function findTermById(id: string) {
+  const [row] = await db.select().from(moderationTerms).where(eq(moderationTerms.id, id));
+  return row ?? null;
+}
+
+export async function findTerm(term: string) {
+  const [row] = await db.select().from(moderationTerms).where(eq(moderationTerms.term, term));
+  return row ?? null;
 }
 
 export const sampleActivity: ActivityContent = {

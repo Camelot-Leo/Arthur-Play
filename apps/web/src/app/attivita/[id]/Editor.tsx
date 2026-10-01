@@ -1,8 +1,9 @@
 "use client";
 import Link from "next/link";
 import { useId, useState } from "react";
-import { LIMITS, T, type ActivityContent, type ActivitySettings, type Slide, type SlideType } from "@arthur/shared";
+import { AUDIENCES, LIMITS, T, normalizeTags, type ActivityContent, type ActivityMeta, type ActivitySettings, type Slide, type SlideType } from "@arthur/shared";
 import { Footer } from "@/components/Footer";
+import { SlidePreview } from "@/components/editor/SlidePreview";
 
 const newId = () => `s${Math.random().toString(36).slice(2, 10)}`;
 const opt = (label = "") => ({ id: newId(), label });
@@ -36,11 +37,15 @@ function blankSlide(type: SlideType): Slide {
 
 const TYPES: SlideType[] = ["content", "choice", "scale", "open", "wordcloud", "grid", "ranking", "points", "qa", "quiz"];
 
-/** Editor base (Fase 1): sequenza di slide in form. Anteprima dal vivo in Fase 6. */
-export function Editor({ id, initial }: { id: string; initial: ActivityContent }) {
+/** Editor delle attività: slide in form, metadati della libreria e anteprima dal vivo (Proiezione e Partecipante). */
+export function Editor({ id, initial, initialMeta }: { id: string; initial: ActivityContent; initialMeta: ActivityMeta }) {
   const [content, setContent] = useState<ActivityContent>(initial);
+  const [audience, setAudience] = useState(initialMeta.audience);
+  const [tagsText, setTagsText] = useState(initialMeta.tags.join(", "));
   const [newType, setNewType] = useState<SlideType>("choice");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [selected, setSelected] = useState(0);
+  const current = Math.min(selected, content.slides.length - 1);
 
   const setSlides = (fn: (s: Slide[]) => Slide[]) => {
     setContent((c) => ({ ...c, slides: fn(c.slides) }));
@@ -63,15 +68,18 @@ export function Editor({ id, initial }: { id: string; initial: ActivityContent }
       headers: { "content-type": "application/json" },
       // Le righe vuote delle risposte accettate dei quiz non vengono salvate.
       body: JSON.stringify({
-        ...content,
-        slides: content.slides.map((sl) => (sl.type === "quiz" ? { ...sl, acceptedAnswers: sl.acceptedAnswers.map((x) => x.trim()).filter(Boolean) } : sl)),
+        content: {
+          ...content,
+          slides: content.slides.map((sl) => (sl.type === "quiz" ? { ...sl, acceptedAnswers: sl.acceptedAnswers.map((x) => x.trim()).filter(Boolean) } : sl)),
+        },
+        meta: { audience, tags: normalizeTags(tagsText.split(",")) },
       }),
     }).catch(() => null);
     setStatus(res?.ok ? "saved" : "error");
   };
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col">
+    <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col">
       <header className="flex items-center justify-between gap-4 px-4 pt-6">
         <Link href="/attivita" className="underline underline-offset-2">
           {T.app.back}
@@ -86,93 +94,146 @@ export function Editor({ id, initial }: { id: string; initial: ActivityContent }
           </button>
         </div>
       </header>
-      <main id="contenuto" className="flex flex-1 flex-col gap-6 px-4 py-8">
-        <h1 className="text-3xl font-semibold">{T.editor.title}</h1>
-        <Field label={T.editor.activityTitle}>
-          {(fid) => (
-            <input
-              id={fid}
-              className="input"
-              maxLength={LIMITS.titleMax}
-              value={content.title}
-              onChange={(e) => setContent((c) => ({ ...c, title: e.target.value }))}
-            />
-          )}
-        </Field>
-        <Field label={T.editor.description}>
-          {(fid) => (
-            <textarea
-              id={fid}
-              className="input min-h-20"
-              maxLength={LIMITS.bodyMax}
-              value={content.description ?? ""}
-              onChange={(e) => setContent((c) => ({ ...c, description: e.target.value || undefined }))}
-            />
-          )}
-        </Field>
-        <label className="flex items-center gap-3 font-bold">
-          <input
-            type="checkbox"
-            className="h-5 w-5 accent-brand"
-            checked={content.settings.moderation}
-            onChange={(e) => setContent((c) => ({ ...c, settings: { ...c.settings, moderation: e.target.checked } }))}
-          />
-          {T.editor.moderation}
-        </label>
-
-        <GameSettings settings={content.settings} onChange={(settings) => setContent((c) => ({ ...c, settings }))} />
-
-        <ol className="flex flex-col gap-6">
-          {content.slides.map((s, i) => (
-            <li key={s.id} className="card p-4">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-xl font-semibold">
-                  {T.editor.slideN(i + 1)} · {T.slideTypes[s.type]}
-                </h2>
-                <div className="flex gap-2">
-                  <button type="button" className="btn min-h-10 px-3 text-sm" onClick={() => move(i, -1)} disabled={i === 0}>
-                    {T.editor.moveUp}
-                  </button>
-                  <button type="button" className="btn min-h-10 px-3 text-sm" onClick={() => move(i, 1)} disabled={i === content.slides.length - 1}>
-                    {T.editor.moveDown}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn min-h-10 px-3 text-sm"
-                    onClick={() => setSlides((all) => all.filter((_, j) => j !== i))}
-                    disabled={content.slides.length === 1}
-                  >
-                    {T.editor.remove}
-                  </button>
-                </div>
-              </div>
-              <SlideForm slide={s} onChange={(n) => updateSlide(i, n)} />
-            </li>
-          ))}
-        </ol>
-
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label={T.editor.slideType}>
+      <div className="grid flex-1 gap-8 px-4 py-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,440px)]">
+        <main id="contenuto" className="flex min-w-0 flex-col gap-6">
+          <h1 className="text-3xl font-semibold">{T.editor.title}</h1>
+          <Field label={T.editor.activityTitle}>
             {(fid) => (
-              <select id={fid} className="input" value={newType} onChange={(e) => setNewType(e.target.value as SlideType)}>
-                {TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {T.slideTypes[t]}
-                  </option>
-                ))}
-              </select>
+              <input
+                id={fid}
+                className="input"
+                maxLength={LIMITS.titleMax}
+                value={content.title}
+                onChange={(e) => setContent((c) => ({ ...c, title: e.target.value }))}
+              />
             )}
           </Field>
-          <button
-            type="button"
-            className="btn btn-dark"
-            disabled={content.slides.length >= LIMITS.slidesMax}
-            onClick={() => setSlides((all) => [...all, blankSlide(newType)])}
-          >
-            {T.editor.addSlide}
-          </button>
-        </div>
-      </main>
+          <Field label={T.editor.description}>
+            {(fid) => (
+              <textarea
+                id={fid}
+                className="input min-h-20"
+                maxLength={LIMITS.bodyMax}
+                value={content.description ?? ""}
+                onChange={(e) => setContent((c) => ({ ...c, description: e.target.value || undefined }))}
+              />
+            )}
+          </Field>
+          <fieldset className="card flex flex-col gap-4 p-4">
+            <legend className="px-1 text-xl font-semibold">{T.editor.library}</legend>
+            <fieldset>
+              <legend className="label">{T.editor.audience}</legend>
+              <div className="flex flex-wrap gap-4">
+                {AUDIENCES.map((a) => (
+                  <label key={a} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      className="h-5 w-5 accent-brand"
+                      checked={audience === a}
+                      onChange={() => {
+                        setAudience(a);
+                        setStatus("idle");
+                      }}
+                    />
+                    {T.activities.audience[a]}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <Field label={T.editor.tags}>
+              {(fid) => (
+                <>
+                  <input
+                    id={fid}
+                    className="input"
+                    maxLength={400}
+                    value={tagsText}
+                    aria-describedby={`${fid}-hint`}
+                    onChange={(e) => {
+                      setTagsText(e.target.value);
+                      setStatus("idle");
+                    }}
+                  />
+                  <p id={`${fid}-hint`} className="mt-1 text-sm text-muted">
+                    {T.editor.tagsHint}
+                  </p>
+                </>
+              )}
+            </Field>
+          </fieldset>
+          <label className="flex items-center gap-3 font-bold">
+            <input
+              type="checkbox"
+              className="h-5 w-5 accent-brand"
+              checked={content.settings.moderation}
+              onChange={(e) => setContent((c) => ({ ...c, settings: { ...c.settings, moderation: e.target.checked } }))}
+            />
+            {T.editor.moderation}
+          </label>
+
+          <GameSettings settings={content.settings} onChange={(settings) => setContent((c) => ({ ...c, settings }))} />
+
+          <ol className="flex flex-col gap-6">
+            {content.slides.map((s, i) => (
+              <li key={s.id} className={`card p-4 ${i === current ? "outline outline-4 outline-brand" : ""}`} onFocusCapture={() => setSelected(i)}>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-xl font-semibold">
+                    {T.editor.slideN(i + 1)} · {T.slideTypes[s.type]}
+                  </h2>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" className="btn min-h-10 px-3 text-sm" aria-pressed={i === current} onClick={() => setSelected(i)}>
+                      {T.editor.previewSelect}
+                    </button>
+                    <button type="button" className="btn min-h-10 px-3 text-sm" onClick={() => move(i, -1)} disabled={i === 0}>
+                      {T.editor.moveUp}
+                    </button>
+                    <button type="button" className="btn min-h-10 px-3 text-sm" onClick={() => move(i, 1)} disabled={i === content.slides.length - 1}>
+                      {T.editor.moveDown}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn min-h-10 px-3 text-sm"
+                      onClick={() => setSlides((all) => all.filter((_, j) => j !== i))}
+                      disabled={content.slides.length === 1}
+                    >
+                      {T.editor.remove}
+                    </button>
+                  </div>
+                </div>
+                <SlideForm slide={s} onChange={(n) => updateSlide(i, n)} />
+              </li>
+            ))}
+          </ol>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label={T.editor.slideType}>
+              {(fid) => (
+                <select id={fid} className="input" value={newType} onChange={(e) => setNewType(e.target.value as SlideType)}>
+                  {TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {T.slideTypes[t]}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <button
+              type="button"
+              className="btn btn-dark"
+              disabled={content.slides.length >= LIMITS.slidesMax}
+              onClick={() => {
+                setSlides((all) => [...all, blankSlide(newType)]);
+                setSelected(content.slides.length);
+              }}
+            >
+              {T.editor.addSlide}
+            </button>
+          </div>
+        </main>
+        <aside className="lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto">
+          {content.slides[current] && <SlidePreview slide={content.slides[current]} index={current} />}
+        </aside>
+      </div>
       <Footer />
     </div>
   );

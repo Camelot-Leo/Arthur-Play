@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { and, eq, gt, isNull, lt, sql, authSessions, loginTokens, users, type User } from "@arthur/db";
 import { T } from "@arthur/shared";
 import { RATE, hit, randomToken, sha256 } from "@arthur/shared/server";
@@ -11,6 +11,7 @@ import { db, redis } from "./services";
 export const SESSION_COOKIE = "ap_sess";
 const SESSION_DAYS = 30;
 const LOGIN_TOKEN_MINUTES = 15;
+const INVITE_DAYS = 7;
 
 export type CurrentUser = Pick<User, "id" | "email" | "name" | "role">;
 
@@ -87,6 +88,34 @@ export async function requireUser(): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   return user;
+}
+
+/** Per le pagine dell'admin: 404 per chi non è admin (non si rivela che la pagina esiste). */
+export async function requireAdmin(): Promise<CurrentUser> {
+  const user = await requireUser();
+  if (user.role !== "admin") notFound();
+  return user;
+}
+
+/**
+ * Invito di un facilitatore (solo admin): crea l'account e invia un link di accesso
+ * monouso valido 7 giorni. Unici dati salvati: nome ed email.
+ */
+export async function inviteUser(input: { name: string; email: string; role: "admin" | "facilitator" }): Promise<"ok" | "exists"> {
+  const email = input.email.trim().toLowerCase();
+  const [existing] = await db().select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${email}`);
+  if (existing) return "exists";
+  // Tutto o niente: se l'email non parte, l'account non viene creato.
+  await db().transaction(async (tx) => {
+    const [user] = await tx.insert(users).values({ email, name: input.name.trim(), role: input.role }).returning({ id: users.id });
+    const token = randomToken(32);
+    await tx
+      .insert(loginTokens)
+      .values({ tokenHash: sha256(token), userId: user!.id, purpose: "invite", expiresAt: new Date(Date.now() + INVITE_DAYS * 86_400_000) });
+    const url = `${env.appUrl}/login/verifica?t=${encodeURIComponent(token)}`;
+    await sendMail(email, T.auth.inviteSubject, T.auth.inviteBody(url));
+  });
+  return "ok";
 }
 
 export async function logout(): Promise<void> {
