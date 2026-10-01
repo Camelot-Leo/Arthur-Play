@@ -19,6 +19,7 @@ import {
   extractDocumentText,
   generateActivity,
   groupThemes,
+  withFallbacks,
   type AiRequest,
   type AiTransport,
 } from "../src";
@@ -59,7 +60,9 @@ describe("configurazione", () => {
     expect(aiConfig({}).enabled).toBe(false);
     expect(aiConfig({ AI_ENABLED: "true" }).enabled).toBe(false);
     expect(aiConfig({ AI_ENABLED: "1" }).enabled).toBe(true);
-    expect(aiConfig({}).model).toBe("claude-opus-5-5");
+    expect(aiConfig({}).model).toBe("claude-sonnet-5-5");
+    expect(aiConfig({}).fallbackModels).toEqual(["claude-sonnet-5", "claude-haiku-4-5"]);
+    expect(aiConfig({ AI_FALLBACK_MODELS: "" }).fallbackModels).toEqual([]);
   });
 });
 
@@ -113,7 +116,7 @@ describe("raggruppamento in temi: cosa riceve l'AI", () => {
         { label: "Clima positivo", items: [7, 8, 10] },
       ],
     }));
-    const themes = await groupThemes(transport, "claude-opus-5-5", { question: "Cosa rende efficace una squadra?", inputs, moderation: SEED_TERMS });
+    const themes = await groupThemes(transport, "claude-sonnet-5-5", { question: "Cosa rende efficace una squadra?", inputs, moderation: SEED_TERMS });
     expect(themes.map((t) => t.label)).toEqual(["Organizzazione", "Fiducia e ascolto", "Clima positivo"]);
     expect(themes.reduce((a, t) => a + t.count, 0)).toBe(10);
 
@@ -195,7 +198,7 @@ describe("generazione di attività", () => {
   it("bozza validata con gli schemi dell'editor; slide non valide scartate; soluzione corretta", async () => {
     GenActivitySchema.parse(generated);
     const { transport, requests } = mockTransport(() => generated);
-    const act = await generateActivity(transport, "claude-opus-5-5", { topic: "ascolto attivo", audience: "studenti", slideCount: 4 });
+    const act = await generateActivity(transport, "claude-sonnet-5-5", { topic: "ascolto attivo", audience: "studenti", slideCount: 4 });
     expect(act.slides.map((s) => s.type)).toEqual(["content", "quiz", "scale"]); // choice senza opzioni scartata
     const quiz = act.slides[1]!;
     expect(quiz.type === "quiz" && quiz.correctOptionId).toBe("o1");
@@ -219,6 +222,41 @@ describe("generazione di attività", () => {
       },
     };
     await expect(generateActivity(transport, "m", { topic: "x", audience: "studenti", slideCount: 3 })).rejects.toBeInstanceOf(AiRefusedError);
+  });
+});
+
+describe("modelli di riserva", () => {
+  const req: AiRequest = { model: "claude-sonnet-5-5", system: "s", user: "u", effort: "medium", maxTokens: 100 };
+  const chain = ["claude-sonnet-5", "claude-haiku-4-5"];
+
+  it("se il principale declina si passa alle riserve in ordine, con la stessa richiesta", async () => {
+    const { transport, requests } = mockTransport((r) => {
+      if (r.model !== "claude-haiku-4-5") throw new AiRefusedError();
+      return { title: "ok", description: "", slides: [] };
+    });
+    await withFallbacks(transport, chain).structured(req, GenActivitySchema);
+    expect(requests.map((r) => r.model)).toEqual(["claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-4-5"]);
+    for (const r of requests) expect({ ...r, model: "" }).toEqual({ ...req, model: "" });
+  });
+
+  it("si ferma al primo modello che risponde; gli errori non recuperabili non passano alle riserve", async () => {
+    const ok = mockTransport(() => ({ title: "ok", description: "", slides: [] }));
+    await withFallbacks(ok.transport, chain).structured(req, GenActivitySchema);
+    expect(ok.requests).toHaveLength(1);
+
+    const bad = mockTransport(() => {
+      throw new TypeError("richiesta non valida");
+    });
+    await expect(withFallbacks(bad.transport, chain).structured(req, GenActivitySchema)).rejects.toBeInstanceOf(TypeError);
+    expect(bad.requests).toHaveLength(1);
+  });
+
+  it("se tutta la catena declina, l'errore arriva al chiamante", async () => {
+    const { transport, requests } = mockTransport(() => {
+      throw new AiRefusedError();
+    });
+    await expect(withFallbacks(transport, chain).structured(req, GenActivitySchema)).rejects.toBeInstanceOf(AiRefusedError);
+    expect(requests).toHaveLength(3);
   });
 });
 

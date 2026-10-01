@@ -1,4 +1,4 @@
-import { aiConfig, createAnthropicTransport, type AiTransport } from "@arthur/ai";
+import { aiConfig, createAnthropicTransport, withFallbacks, type AiTransport } from "@arthur/ai";
 
 /**
  * Funzioni AI lato server. Disattivate di default (AI_ENABLED=1 per attivarle).
@@ -9,7 +9,7 @@ let transport: AiTransport | null = null;
 export const ai = () => aiConfig();
 
 export function aiTransport(): AiTransport {
-  transport ??= createAnthropicTransport();
+  transport ??= withFallbacks(createAnthropicTransport(), aiConfig().fallbackModels);
   return transport;
 }
 
