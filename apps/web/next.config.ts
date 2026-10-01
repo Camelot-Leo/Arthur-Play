@@ -28,7 +28,7 @@ const csp = [
 const config: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
-  transpilePackages: ["@arthur/shared", "@arthur/db"],
+  transpilePackages: ["@arthur/shared", "@arthur/db", "@arthur/ai"],
   serverExternalPackages: ["ioredis", "postgres", "pino", "sharp", "nodemailer"],
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
   async headers() {

@@ -21,6 +21,8 @@ export type SessionMeta = {
   timerFactor: number;
   view: "slide" | "leaderboard" | "podium";
   sounds: boolean;
+  /** Slide i cui temi AI sono mostrati in Proiezione. */
+  themesSlide: string | null;
   expiresAt: number;
   title: string;
 };
@@ -41,6 +43,7 @@ export function parseMeta(sid: string, h: Record<string, string>): SessionMeta |
     timerFactor: [1, 1.5, 2].includes(Number(h.timerFactor)) ? Number(h.timerFactor) : 1,
     view: h.view === "leaderboard" || h.view === "podium" ? h.view : "slide",
     sounds: h.sounds !== "0",
+    themesSlide: h.themesSlide || null,
     expiresAt: Number(h.expiresAt),
     title: h.title ?? "",
   };

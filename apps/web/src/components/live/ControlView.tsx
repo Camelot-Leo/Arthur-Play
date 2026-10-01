@@ -6,6 +6,7 @@ import { Footer } from "@/components/Footer";
 import { QrCode } from "@/components/QrCode";
 import { TimerBadge } from "@/components/Timer";
 import { Results } from "@/components/slides/Results";
+import { ThemesPanel } from "./ThemesPanel";
 import { ContentSlideView, SlideHeading } from "@/components/slides/SlideParts";
 import { Leaderboard } from "@/components/game/Leaderboard";
 import { MissionBar } from "@/components/game/MissionBar";
@@ -16,7 +17,7 @@ import { formatCode } from "./format";
 const FACTORS = [1, 1.5, 2] as const;
 
 /** Vista Regia: controlli del facilitatore, anteprima della slide successiva, note. */
-export function ControlView({ sid, joinBase }: { sid: string; joinBase: string }) {
+export function ControlView({ sid, joinBase, aiEnabled = false }: { sid: string; joinBase: string; aiEnabled?: boolean }) {
   const live = useLiveSession(sid, "control");
   const [busy, setBusy] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(60);
@@ -98,6 +99,15 @@ export function ControlView({ sid, joinBase }: { sid: string; joinBase: string }
                   solution={current.type === "quiz" ? { correctOptionId: current.correctOptionId, acceptedAnswers: current.acceptedAnswers } : null}
                 />
               </div>
+            )}
+            {aiEnabled && state && current && (current.type === "open" || current.type === "wordcloud") && (
+              <ThemesPanel
+                sid={sid}
+                slideId={current.id}
+                results={live.results?.slideId === current.id ? live.results : null}
+                visible={state.themesVisible}
+                send={live.send}
+              />
             )}
             {current && isInteractive(current) && live.results?.slideId === current.id && live.results.data && (
               <button

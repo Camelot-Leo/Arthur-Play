@@ -31,6 +31,8 @@ export type SessionState = {
   sounds: boolean;
   /** Classifica individuale attiva (mai insieme alle squadre). */
   leaderboard: boolean;
+  /** Temi AI mostrati in Proiezione per la slide corrente. */
+  themesVisible: boolean;
 };
 
 export type ScreenView = "slide" | "leaderboard" | "podium";
@@ -93,7 +95,9 @@ export type QaPublicMessage = { slideId: string; items: Omit<QaItem, "hidden">[]
 export type QaStateReply = Ack<{ items: Omit<QaItem, "hidden">[]; voted: string[]; asked: number }>;
 export type QuizResultReply = Ack<{ answered: boolean; correct: boolean; points: number; total: number }>;
 
-export type ResultsMessage = { slideId: string; data: SlideResults };
+/** Tema individuato dall'AI tra le risposte visibili (Fase 5). */
+export type Theme = { label: string; count: number; examples: string[] };
+export type ResultsMessage = { slideId: string; data: SlideResults; themes?: Theme[] };
 
 export type ErrorCode =
   | "invalid"
@@ -168,6 +172,8 @@ export const EV = {
   quizTimer: "c:quizTimer",
   view: "c:view",
   sounds: "c:sounds",
+  /** Mostra o nasconde in Proiezione i temi AI già calcolati per la slide corrente. */
+  themes: "c:themes",
   close: "c:close",
   // server → client
   state: "state",

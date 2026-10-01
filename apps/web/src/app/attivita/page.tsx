@@ -3,6 +3,7 @@ import { T } from "@arthur/shared";
 import { listUserSessions } from "@arthur/shared/server";
 import { Footer } from "@/components/Footer";
 import { listOwned } from "@/lib/server/activities";
+import { ai } from "@/lib/server/ai";
 import { requireUser } from "@/lib/server/auth";
 import { redis } from "@/lib/server/services";
 import { LogoutButton, NewActivityButton, StartAsyncButton, StartButton } from "./ActivityActions";
@@ -48,7 +49,14 @@ export default async function ActivitiesPage() {
         )}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-3xl font-semibold">{T.activities.title}</h1>
-          <NewActivityButton />
+          <div className="flex flex-wrap gap-2">
+            {ai().enabled && (
+              <Link className="btn" href="/attivita/genera">
+                ✨ {T.ai.generate}
+              </Link>
+            )}
+            <NewActivityButton />
+          </div>
         </div>
         {items.length === 0 ? (
           <p className="text-muted">{T.activities.empty}</p>

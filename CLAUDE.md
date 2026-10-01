@@ -55,7 +55,7 @@ Senza dipendenze: grafici SVG, export PNG (SVG → canvas), suoni Web Audio, ani
 - [x] Fase 2 — Tipi di slide restanti e quiz
 - [x] Fase 3 — Gamification
 - [x] Fase 4 — Ritmo libero
-- [ ] Fase 5 — Funzioni AI
+- [x] Fase 5 — Funzioni AI
 - [ ] Fase 6 — Editor completo, libreria condivisa, admin
 
 ## Note operative (Fase 1)
@@ -98,6 +98,15 @@ Senza dipendenze: grafici SVG, export PNG (SVG → canvas), suoni Web Audio, ani
 - Le risposte vanno a qualunque slide (`targetInteractive`); nessun blocco/timer. Quiz: riscontro immediato nell'ack (`feedback`: corretta, soluzione, `explanation`). `explanation` non è mai nella slide pubblica.
 - Facilitatore: `/regia/[sid]` mostra `AsyncDashboard` (solo aggregati di tutte le slide, `allResults` all'init + aggiornamenti per slide; conteggio di chi ha iniziato = `HLEN` dei partecipanti). I comandi di conduzione live sono rifiutati (`withMeta` senza `asyncAllowed`).
 - Alla scadenza (TTL) il sweep avvisa la dashboard; il codice smette di funzionare.
+
+## Note operative (Fase 5)
+
+- Pacchetto `packages/ai`: `config.ts` (`AI_ENABLED=1` attiva, default spento; `AI_MODEL` default `claude-opus-5-5`), `transport.ts` (unico punto che chiama l'SDK: `beta.messages.parse` con output strutturato zod, `fallbacks: "default"`; rifiuto → `AiRefusedError`), `documents.ts` (unpdf/mammoth in memoria, max 10 MB e 120.000 caratteri, nessun troncamento silenzioso), `generate.ts`, `themes.ts`.
+- Payload verso l'AI: `AiRequest` = {model, system, user, effort, maxTokens}. Generazione: solo argomento o testo del documento. Temi: `collectThemeInputs` legge solo `:txt` non nascosti (aperte) o voci non nascoste (word cloud); le filtrate non sono mai salvate. Minimo 10 risposte (`MIN_THEME_RESPONSES`).
+- Etichette ed esempi dei temi passano dal filtro di moderazione; temi in `ap:s:{sid}:r:{slide}:themes` (`SET PXAT` alla scadenza). La Regia li mostra con `c:themes` ({slideId, visible}); `goto` li nasconde; arrivano in `results.themes` solo a Proiezione/Regia.
+- API: `POST /api/ai/genera` (multipart; crea una nuova attività bozza) e `POST /api/sessioni/[sid]/temi`. Rate limit `aiPerUser` 20/10 min. Pagina `/attivita/genera` → 404 con AI spenta.
+- I test usano un trasporto simulato (`packages/ai/test/ai.test.ts`); nessuna chiamata reale. L'API Anthropic non ha `inference_geo` UE (solo `us`/`global`).
+- Dipendenze aggiunte (già approvate): `@anthropic-ai/sdk`, `unpdf`, `mammoth`.
 
 ## Punti aperti da ricordare
 

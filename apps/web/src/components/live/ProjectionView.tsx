@@ -9,6 +9,7 @@ import { Leaderboard } from "@/components/game/Leaderboard";
 import { MissionBar } from "@/components/game/MissionBar";
 import { Podium } from "@/components/game/Podium";
 import { Results } from "@/components/slides/Results";
+import { ThemesView } from "@/components/slides/ThemesView";
 import { ContentSlideView, SlideHeading } from "@/components/slides/SlideParts";
 import { sounds, unlockAudio } from "@/lib/client/sounds";
 import { useLiveSession, type LiveSession } from "@/lib/client/useLiveSession";
@@ -108,7 +109,11 @@ export function ProjectionView({ sid, joinBase }: { sid: string; joinBase: strin
               ) : (
                 <>
                   <SlideHeading slide={slide} size="projection" />
-                  {interactive(slide) && (
+                  {interactive(slide) && state?.themesVisible && state.resultsVisible && live.results?.slideId === slide.id && live.results.themes ? (
+                    <div className="min-h-0 flex-1 overflow-hidden">
+                      <ThemesView themes={live.results.themes} />
+                    </div>
+                  ) : interactive(slide) && (
                     <div className="min-h-0 flex-1 overflow-hidden">
                       <Results
                         slide={slide}

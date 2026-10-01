@@ -12,7 +12,7 @@ Web app mobile-first di gamification per la formazione su soft skills e competen
 | 2 | Griglia 2x2, Ranking, 100 punti, Q&A anonimo, quiz a punti, PNG del risultato | ✅ |
 | 3 | Squadre, missione collettiva, classifica opzionale, suoni e animazioni, podio | ✅ |
 | 4 | Modalità a ritmo libero con scadenza, risultati aggregati, quiz con spiegazione | ✅ |
-| 5 | Funzioni AI | — |
+| 5 | Funzioni AI (disattivate di default): generazione di attività da argomento o PDF/DOCX, temi delle risposte aperte e della word cloud | ✅ |
 | 6 | Editor completo, libreria condivisa, pannello admin | — |
 
 ## Architettura
@@ -27,6 +27,7 @@ Browser ──HTTPS──► apps/web (Next.js)      ──► PostgreSQL (facil
 - `apps/web` — Next.js (App Router), TypeScript, Tailwind. Pagine, autenticazione, editor, API.
 - `apps/realtime` — servizio Socket.IO separato: ingresso, risposte, aggregati, controlli della Regia.
 - `packages/shared` — testi dell'interfaccia (`src/i18n/it.ts`), schemi delle slide, filtro di moderazione, protocollo WebSocket, chiavi Redis.
+- `packages/ai` — funzioni AI (Fase 5): estrazione del testo da PDF/DOCX in memoria, generazione di attività, raggruppamento in temi. Un unico punto costruisce ciò che va all'AI.
 - `packages/db` — schema Drizzle, migrazioni, seed delle liste di moderazione, CLI admin.
 - `infra/redis/redis.conf` — Redis senza persistenza. `infra/proxy/Caddyfile` — esempio di reverse proxy senza log di accesso.
 
@@ -80,6 +81,9 @@ Per un avvio di produzione in locale: `pnpm build && pnpm start`.
 | `REDIS_URL` | sì | Connessione Redis |
 | `TRUST_PROXY` | no | `1` solo dietro reverse proxy fidato (usa `X-Forwarded-For` per il rate limiting) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | in produzione | SMTP del provider UE (proposto: Brevo, `smtp-relay.brevo.com:587`) |
+| `AI_ENABLED` | no | `1` attiva le funzioni AI. Default disattivate |
+| `ANTHROPIC_API_KEY` | con AI attiva | Chiave API Anthropic |
+| `AI_MODEL` | no | Modello (default `claude-opus-5-5`) |
 | `LOG_LEVEL` | no | Livello dei log (default `info`) |
 
 I segreti stanno solo nelle variabili d'ambiente. Il file `.env` è escluso da git. La telemetria di Next.js è disattivata dagli script (`scripts/with-env.mjs`) e dai test; per disattivarla anche lanciando `next` a mano: `npx next telemetry disable`.
@@ -100,6 +104,7 @@ DATABASE_URL=postgres://arthur:arthur@127.0.0.1:5432/arthur_play_test pnpm db:mi
 |---|---|
 | `pnpm test` | Vitest: punteggio di squadra, bilanciamento delle squadre e missione collettiva; logica di punteggio del quiz (correttezza e velocità), filtro di moderazione (ogni voce delle liste e le sue varianti), validazione delle risposte, TTL, chiusura e scadenza delle sessioni, Redis senza persistenza, IP hashati e rate limiting, flusso realtime completo, assenza di dati dei partecipanti in log e PostgreSQL. Usa Redis DB 15 e `arthur_play_test` |
 | `pnpm e2e` | Playwright: quiz, ranking, 100 punti, griglia, Q&A, PNG, timer, caricamento dei font; ingresso da smartphone in meno di 15 s, risultati in Proiezione entro 1 s, moderazione, riconnessione, chiusura, **nessuna richiesta verso domini terzi**. Avvia da solo realtime e web (build di produzione); Redis DB 14. Chromium in `PLAYWRIGHT_CHROMIUM_PATH` (default `/opt/pw-browsers/chromium`) |
+| (in `pnpm test`) AI | Con API simulata: all'AI non arrivano nickname, token (né hash), codici, id di sessione, risposte filtrate o nascoste; servono almeno 10 risposte; le etichette dei temi passano dal filtro di moderazione; documenti estratti in memoria, file non supportati o troppo grandi rifiutati. In e2e: con AI disattivata nessuna voce nell'interfaccia e API rifiutate |
 | `pnpm load` | Test di carico: 300 partecipanti simulati (`-- --participants N`), latenza delle risposte in Proiezione. Redis DB 13 |
 | `pnpm load:teams` | Come sopra con 4 squadre: bilanciamento (differenza massima 1) e classifica di squadra |
 | `pnpm typecheck`, `pnpm lint` | TypeScript ed ESLint |
@@ -114,6 +119,10 @@ DATABASE_URL=postgres://arthur:arthur@127.0.0.1:5432/arthur_play_test pnpm db:mi
 - **Missione collettiva**: obiettivo comune (percentuale di risposte corrette ai quiz, aggiornata solo a risposte chiuse, oppure numero di risposte), barra condivisa su Proiezione e telefoni, animazione di completamento.
 - **Classifica individuale**: disattivata di default, attivabile per attività (solo senza squadre).
 - **Ritmo libero**: dall'elenco attività "Avvia a ritmo libero" con scadenza (da 10 minuti a 14 giorni). I partecipanti entrano con link o codice, **senza nickname**, e avanzano da soli; i quiz mostrano subito esito, soluzione e spiegazione. Il facilitatore vede solo risultati aggregati, aggiornati in tempo reale, che si cancellano alla scadenza o alla chiusura. Il token tecnico impedisce i doppi invii anche a distanza di giorni.
+- **Funzioni AI** (solo con `AI_ENABLED=1`):
+  - *Genera con l'AI* (elenco attività): argomento oppure PDF/DOCX (max 10 MB), destinatari e numero di slide. Il documento è letto in memoria e scartato; la bozza è validata con gli schemi dell'editor e salvata come attività modificabile.
+  - *Raggruppa in temi* (Regia, risposte aperte e word cloud, da 10 risposte visibili): l'AI riceve solo la domanda e i testi visibili e non filtrati; i temi (etichetta, numero, esempi) passano dal filtro di moderazione, restano in Redis con la scadenza della sessione e la Regia li mostra o nasconde in Proiezione.
+  - Limite: 20 richieste AI ogni 10 minuti per facilitatore.
 - **Feedback**: suoni sintetizzati nel browser (disattivabili dalla Regia; in Proiezione si attivano con "Attiva i suoni"), animazioni tra le slide, coriandoli e podio; tutto rispetta `prefers-reduced-motion`.
 
 ## Privacy e dati
@@ -132,6 +141,7 @@ DATABASE_URL=postgres://arthur:arthur@127.0.0.1:5432/arthur_play_test pnpm db:mi
 | `ap:s:{sid}:r:{slide}:qa`, `:qav`, `:qav:{id}` | domande del Q&A **senza autore**; voti; hash dei token che hanno votato (un voto per domanda) |
 | `ap:s:{sid}:r:{slide}:quiz`, `ap:s:{sid}:score` | esito del quiz e punteggio per hash del token |
 | `ap:s:{sid}:teams`, `:tscore`, `:mission` | membri e punti totali per squadra; stato della missione collettiva |
+| `ap:s:{sid}:r:{slide}:themes` | temi generati dall'AI (solo etichette, conteggi ed esempi già visibili) |
 | `ap:salt` | salt per l'hash degli IP, TTL 24 ore |
 | `ap:rl:*` | contatori di rate limiting, TTL 60 s |
 
@@ -143,6 +153,7 @@ DATABASE_URL=postgres://arthur:arthur@127.0.0.1:5432/arthur_play_test pnpm db:mi
 - **Moderazione**: le risposte filtrate non vengono salvate (se ne conta solo il numero) e non arrivano mai in Proiezione.
 - **Nessun dominio terzo**: font, librerie e QR code sono serviti o generati localmente; la CSP (`default-src 'self'`) lo impone.
 - **Hosting**: tutti i componenti girano su un qualunque provider con sede e data center in UE. Email via SMTP di un provider UE (proposto: Brevo, Francia).
+- **AI (unico flusso esterno, disattivato di default)**: verso l'API Anthropic vanno solo il materiale del facilitatore (argomento o testo del documento) oppure la domanda e i testi visibili delle risposte. Mai nickname, token, codici, id di sessione, risposte filtrate o nascoste. L'API Anthropic non offre una regione di elaborazione UE: attivando l'AI i testi possono essere elaborati fuori dall'UE (eccezione ammessa dal vincolo 8).
 
 ## Produzione (note)
 

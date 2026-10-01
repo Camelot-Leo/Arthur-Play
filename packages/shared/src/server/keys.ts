@@ -40,6 +40,8 @@ export const K = {
   teamScore: (sid: string) => `ap:s:{${sid}}:tscore`,
   /** Missione collettiva: answers (contatore), r:{slide} (quiz già svelati), done */
   mission: (sid: string) => `ap:s:{${sid}}:mission`,
+  /** Temi AI della slide (Fase 5): JSON {themes:[{label,count,examples}]} */
+  themes: (sid: string, slide: string) => `ap:s:{${sid}}:r:${slide}:themes`,
   /** sessioni attive del facilitatore */
   userSessions: (userId: string) => `ap:u:${userId}:sessions`,
   salt: () => "ap:salt",

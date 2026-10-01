@@ -22,4 +22,6 @@ export const RATE = {
   loginPerEmail: { limit: 5, window: 600 },
   uploadPerUser: { limit: 60, window: 600 },
   startPerUser: { limit: 30, window: 600 },
+  /** Funzioni AI: limitate per facilitatore (costi e abusi). */
+  aiPerUser: { limit: 20, window: 600 },
 } as const;

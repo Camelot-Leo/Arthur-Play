@@ -27,6 +27,7 @@ import {
   type SessionState,
   type ScreenView,
   type QuizAnswer,
+  type Theme,
   isQuizCorrect,
   teamsOf,
   validateQaQuestion,
@@ -143,6 +144,7 @@ export function createRealtimeServer(opts: RealtimeOptions) {
       view: meta.view,
       sounds: meta.sounds,
       leaderboard: !!activity.settings.leaderboard && !activity.settings.teams?.enabled,
+      themesVisible: meta.themesSlide === slide.id,
     };
     return { state, meta, activity };
   }
@@ -188,6 +190,11 @@ export function createRealtimeServer(opts: RealtimeOptions) {
     return { meta, activity, slide };
   }
 
+  async function readThemes(sid: string, slideId: string) {
+    const raw = await redis.get(K.themes(sid, slideId));
+    return raw ? (JSON.parse(raw) as Theme[]) : undefined;
+  }
+
   /** Quiz già conteggiati per la missione (evita scritture ripetute). */
   const revealedQuizzes = new Map<string, Set<string>>();
 
@@ -221,8 +228,10 @@ export function createRealtimeServer(opts: RealtimeOptions) {
       computeResults(redis, sid, cur.slide, false, revealed),
       computeResults(redis, sid, cur.slide, true, revealed),
     ]);
-    io.to(r.ctrl).emit(EV.results, { slideId: cur.slide.id, data: control });
-    io.to(r.screen).emit(EV.results, { slideId: cur.slide.id, data: cur.meta.resultsVisible ? screen : null });
+    // Temi AI: solo se il facilitatore li mostra (calcolati dal servizio web sui soli testi visibili).
+    const themes = cur.meta.themesSlide === cur.slide.id ? await readThemes(sid, cur.slide.id) : undefined;
+    io.to(r.ctrl).emit(EV.results, { slideId: cur.slide.id, data: control, themes });
+    io.to(r.screen).emit(EV.results, { slideId: cur.slide.id, data: cur.meta.resultsVisible ? screen : null, themes: cur.meta.resultsVisible ? themes : undefined });
     // Q&A: l'elenco pubblico (senza autori, senza nascoste né filtrate) va anche ai partecipanti per votare.
     if (screen.type === "qa") io.to(r.p).emit(EV.qa, { slideId: cur.slide.id, items: screen.items.slice(0, QA_PUBLIC_MAX) });
     await flushGame(sid, cur.meta, cur.activity);
@@ -645,7 +654,9 @@ export function createRealtimeServer(opts: RealtimeOptions) {
       if (slide && isInteractive(slide)) {
         const revealed = slide.type === "quiz" && built.state.locked;
         const data = await computeResults(redis, sid, slide, role === "control", revealed);
-        socket.emit(EV.results, { slideId: slide.id, data: role === "control" || built.meta.resultsVisible ? data : null });
+        const themes = built.meta.themesSlide === slide.id ? await readThemes(sid, slide.id) : undefined;
+        const visible = role === "control" || built.meta.resultsVisible;
+        socket.emit(EV.results, { slideId: slide.id, data: visible ? data : null, themes: visible ? themes : undefined });
       }
       if (built.activity.settings.teams?.enabled || built.activity.settings.leaderboard) {
         if (role === "control" || built.meta.view !== "slide") socket.emit(EV.board, await readBoard(redis, sid, built.activity, true));
@@ -682,9 +693,9 @@ export function createRealtimeServer(opts: RealtimeOptions) {
       if (slide.type === "quiz" && slide.timerSeconds && meta.quizTimerEnabled && (reopen || !wasLocked)) {
         const now = Date.now();
         end = now + Math.min(Math.round(slide.timerSeconds * meta.timerFactor), LIMITS.timerMaxSeconds) * 1000;
-        m.hset(K.meta(sid), { index: i, timerStart: String(now), timerEnd: String(end), view: "slide" });
+        m.hset(K.meta(sid), { index: i, timerStart: String(now), timerEnd: String(end), view: "slide", themesSlide: "" });
       } else {
-        m.hset(K.meta(sid), { index: i, timerStart: "", timerEnd: "", view: "slide" });
+        m.hset(K.meta(sid), { index: i, timerStart: "", timerEnd: "", view: "slide", themesSlide: "" });
       }
       await m.pexpireat(K.meta(sid), meta.expiresAt).exec();
       scheduleTimer(sid, end);
@@ -812,6 +823,18 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         await redis.multi().hset(K.meta(sid), "view", view).pexpireat(K.meta(sid), meta.expiresAt).exec();
         await broadcastState(sid);
         if (view !== "slide") io.to(rooms(sid).screen).emit(EV.board, await readBoard(redis, sid, activity, true));
+      });
+    });
+
+    /** Temi AI della slide corrente: mostrati o nascosti in Proiezione. */
+    on(EV.themes, async (payload, ack) => {
+      const p = payload as { slideId?: unknown; visible?: unknown };
+      if (typeof p?.slideId !== "string" || typeof p.visible !== "boolean") return fail(ack, "invalid");
+      if (p.visible && !(await redis.exists(K.themes(sid, p.slideId)))) return fail(ack, "not_found");
+      await withMeta(ack, async (meta, activity) => {
+        if (activity.slides[meta.index]?.id !== p.slideId) return;
+        await redis.multi().hset(K.meta(sid), "themesSlide", p.visible ? (p.slideId as string) : "").pexpireat(K.meta(sid), meta.expiresAt).exec();
+        await broadcastState(sid);
       });
     });
 
