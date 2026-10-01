@@ -4,6 +4,8 @@ Web app mobile-first di gamification per la formazione su soft skills e competen
 
 > **Privacy by design.** Nessun dato personale dei partecipanti viene salvato in modo persistente. I dati delle sessioni vivono solo in Redis, **senza persistenza su disco**, con scadenza automatica, e vengono cancellati alla chiusura della sessione. Dettagli in [Privacy e dati](#privacy-e-dati).
 
+> **Per iniziare**: la [Guida pratica](docs/GUIDA.md) spiega passo passo come provare l'app sul proprio computer, in sala con telefoni veri e online su un server in UE, con un'attività dimostrativa pronta ([`docs/esempi/attivita-demo.json`](docs/esempi/attivita-demo.json)) e una checklist di prova.
+
 ## Stato
 
 | Fase | Contenuto | Stato |
@@ -87,6 +89,7 @@ Per un avvio di produzione in locale: `pnpm build && pnpm start`.
 | `AI_MODEL` | no | Modello principale (default `claude-sonnet-5-5`) |
 | `AI_FALLBACK_MODELS` | no | Modelli di riserva in ordine, separati da virgola (default `claude-sonnet-5,claude-haiku-4-5`; vuota = nessuna riserva) |
 | `MAIL_CONSOLE` | no | `1` stampa le email in console anche con la build di produzione. Solo per i test (`pnpm e2e`), **mai in produzione** |
+| `DEV_ALLOWED_HOSTS` | no | Solo `pnpm dev`: IP della rete locale da cui aprire l'app (prova da smartphone sul Wi-Fi), es. `192.168.1.20`. Mai in produzione |
 | `LOG_LEVEL` | no | Livello dei log (default `info`) |
 
 I segreti stanno solo nelle variabili d'ambiente. Il file `.env` è escluso da git. La telemetria di Next.js è disattivata dagli script (`scripts/with-env.mjs`) e dai test; per disattivarla anche lanciando `next` a mano: `npx next telemetry disable`.

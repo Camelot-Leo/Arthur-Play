@@ -119,6 +119,14 @@ Senza dipendenze: grafici SVG, export PNG (SVG → canvas), suoni Web Audio, ani
 - Inviti: `inviteUser` in transazione (account + token + email); `MAIL_CONSOLE=1` solo per e2e (build di produzione senza SMTP).
 - Non realizzato perché non richiesto: eliminazione di attività, disattivazione degli account dal pannello (la colonna `disabled_at` esiste), proposta di attività alla libreria da parte dei facilitatori.
 
+## Note operative (dopo la Fase 6: messa in uso)
+
+- Guida d'uso in `docs/GUIDA.md` (locale, rete locale, VPS UE, checklist di prova); attività dimostrativa importabile `docs/esempi/attivita-demo.json` (tutti i tipi di slide, validata con `parseImport`).
+- `next.config.ts`: `agentRules: false` (Next 16 in dev scriveva `apps/web/AGENTS.md` e `apps/web/CLAUDE.md`); `allowedDevOrigins` da `DEV_ALLOWED_HOSTS` (solo dev, prova da smartphone in LAN).
+- In rete locale usare `pnpm dev`: con la build di produzione il cookie `ap_sess` è `Secure` e senza HTTPS funziona solo su `localhost`.
+- Nell'ambiente cloud Chromium usa il proxy per gli host diversi da localhost: per provare un IP locale lanciarlo con `--no-proxy-server`.
+- `playwright.config.ts` usa `/opt/pw-browsers/chromium` solo se esiste, altrimenti il Chromium di `playwright install`.
+
 ## Punti aperti da ricordare
 
 - **Invio email reale** (magic link via SMTP Brevo): non ancora provato, mancano le credenziali. Da trattare in seguito su richiesta dell'utente.

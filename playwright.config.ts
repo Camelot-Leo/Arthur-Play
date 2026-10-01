@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
@@ -15,7 +16,9 @@ const testEnv = {
 };
 Object.assign(process.env, testEnv);
 
-const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? "/opt/pw-browsers/chromium";
+// Chromium preinstallato se presente (ambiente cloud); altrimenti quello di `playwright install chromium`.
+const preinstalled = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? "/opt/pw-browsers/chromium";
+const executablePath = existsSync(preinstalled) ? preinstalled : undefined;
 
 export default defineConfig({
   testDir: "tests/e2e",

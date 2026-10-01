@@ -27,6 +27,13 @@ const csp = [
 
 const config: NextConfig = {
   poweredByHeader: false,
+  // Il server di sviluppo non deve scrivere file nel repository (AGENTS.md/CLAUDE.md generati da Next).
+  agentRules: false,
+  // Solo sviluppo: host della rete locale ammessi (es. prova da smartphone sul Wi-Fi). In produzione non serve.
+  allowedDevOrigins: (process.env.DEV_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean),
   reactStrictMode: true,
   transpilePackages: ["@arthur/shared", "@arthur/db", "@arthur/ai"],
   serverExternalPackages: ["ioredis", "postgres", "pino", "sharp", "nodemailer"],

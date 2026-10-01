@@ -373,7 +373,7 @@ export const it = {
     missionCorrect: (target: number) => `Obiettivo: ${target}% di risposte corrette`,
     missionAnswers: (target: number) => `Obiettivo: ${target} risposte`,
     missionValueCorrect: (v: number) => `${v}% di risposte corrette`,
-    missionValueAnswers: (v: number, t: number) => `${v} risposte su ${t}`,
+    missionValueAnswers: (v: number, t: number) => `${v} ${v === 1 ? "risposta" : "risposte"} su ${t}`,
     missionDone: "Missione compiuta!",
     missionProgress: (v: number, t: number) => `Avanzamento: ${Math.min(100, Math.round((v / t) * 100))}%`,
     enableSounds: "Attiva i suoni",
