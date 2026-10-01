@@ -6,6 +6,8 @@ export type SessionStatus = "active" | "ended";
 /** Stato della sessione inviato a tutti (partecipanti compresi). Nessun dato personale. */
 export type SessionState = {
   status: SessionStatus;
+  /** live: guidata dal facilitatore; async: a ritmo libero (ogni partecipante avanza da solo). */
+  mode: "live" | "async";
   index: number;
   total: number;
   slide: PublicSlide;
@@ -114,10 +116,31 @@ export type Ack<T = object> = ({ ok: true } & T) | { ok: false; error: ErrorCode
 export type ParticipantAuth = { role: "participant"; code: string };
 export type ControlAuth = { role: "control" | "projection"; ticket: string };
 
-export type JoinReply = Ack<{ token: string; nickname: string; answered: number; expiresAt: number; team: string | null }>;
+export type JoinReply = Ack<{
+  token: string;
+  nickname: string;
+  answered: number;
+  expiresAt: number;
+  team: string | null;
+  mode: "live" | "async";
+  /** Solo ritmo libero: tutte le slide (versione pubblica) e quelle a cui questo token ha già risposto. */
+  slides?: PublicSlide[];
+  answeredSlides?: Record<string, number>;
+}>;
+/** Riscontro immediato del quiz nella modalità a ritmo libero. */
+export type QuizFeedbackData = { correct: boolean; correctOptionId?: string; acceptedAnswers?: string[]; explanation?: string };
 export type TeamReply = Ack<{ team: string }>;
-export type AnswerReply = Ack<{ answered: number }>;
-export type ControlInit = Ack<{ activity: ActivityContent; state: SessionState; code: string; expiresAt: number; participants: number }>;
+export type InfoReply = Ack<{ mode: "live" | "async"; title: string; expiresAt: number }>;
+export type AnswerReply = Ack<{ answered: number; feedback?: QuizFeedbackData }>;
+export type ControlInit = Ack<{
+  activity: ActivityContent;
+  state: SessionState;
+  code: string;
+  expiresAt: number;
+  participants: number;
+  /** Solo ritmo libero: risultati aggregati di tutte le slide interattive. */
+  allResults?: ResultsMessage[];
+}>;
 
 export const EV = {
   // partecipante → server
@@ -129,6 +152,8 @@ export const EV = {
   qaState: "p:qaState",
   myResult: "p:myResult",
   chooseTeam: "p:team",
+  /** Prima dell'ingresso: modalità e titolo dell'attività (nessun dato personale). */
+  info: "p:info",
   standing: "p:standing",
   // regia → server
   init: "c:init",

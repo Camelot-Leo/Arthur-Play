@@ -26,6 +26,8 @@ import {
   type InteractiveSlide,
   type SessionState,
   type ScreenView,
+  type QuizAnswer,
+  isQuizCorrect,
   teamsOf,
   validateQaQuestion,
 } from "@arthur/shared";
@@ -120,6 +122,7 @@ export function createRealtimeServer(opts: RealtimeOptions) {
     const locked = isInteractive(slide) ? await lockedNow(sid, meta, slide.id) : false;
     const state: SessionState = {
       status: "active",
+      mode: meta.mode,
       index: meta.index,
       total: activity.slides.length,
       slide: toPublicSlide(slide),
@@ -144,7 +147,9 @@ export function createRealtimeServer(opts: RealtimeOptions) {
     return { state, meta, activity };
   }
 
-  async function participantsOnline(sid: string): Promise<number> {
+  async function participantsOnline(sid: string, mode: "live" | "async" = "live"): Promise<number> {
+    // A ritmo libero conta chi ha iniziato l'attività (nessun dato individuale, solo il totale).
+    if (mode === "async") return redis.hlen(K.participants(sid));
     const vals = await redis.hvals(K.online(sid));
     return vals.reduce((a, v) => a + Math.max(0, Number(v)), 0);
   }
@@ -159,7 +164,8 @@ export function createRealtimeServer(opts: RealtimeOptions) {
 
   async function broadcastPresence(sid: string) {
     const r = rooms(sid);
-    io.to([r.screen, r.ctrl]).emit(EV.presence, { count: await participantsOnline(sid) });
+    const meta = await getMeta(redis, sid);
+    io.to([r.screen, r.ctrl]).emit(EV.presence, { count: await participantsOnline(sid, meta?.mode) });
   }
 
   async function currentInteractive(sid: string) {
@@ -167,6 +173,19 @@ export function createRealtimeServer(opts: RealtimeOptions) {
     if (!meta || !activity || meta.status !== "active") return null;
     const slide = activity.slides[meta.index];
     return { meta, activity, slide: slide && isInteractive(slide) ? slide : null };
+  }
+
+  /**
+   * Slide interattiva a cui è diretta una risposta: dal vivo deve essere quella corrente;
+   * a ritmo libero può essere qualunque slide dell'attività.
+   */
+  async function targetInteractive(sid: string, slideId: unknown) {
+    const [meta, activity] = await Promise.all([getMeta(redis, sid), activityOf(sid)]);
+    if (!meta || !activity || meta.status !== "active") return { error: "ended" as const };
+    if (typeof slideId !== "string") return { error: "invalid" as const };
+    const slide = meta.mode === "async" ? activity.slides.find((x) => x.id === slideId) : activity.slides[meta.index];
+    if (!slide || !isInteractive(slide) || slide.id !== slideId) return { error: "not_current" as const };
+    return { meta, activity, slide };
   }
 
   /** Quiz già conteggiati per la missione (evita scritture ripetute). */
@@ -210,7 +229,35 @@ export function createRealtimeServer(opts: RealtimeOptions) {
   }
 
   /** Invio dei risultati raggruppato: al massimo uno ogni RESULTS_THROTTLE_MS per sessione. */
-  function markDirty(sid: string) {
+  /** Ritmo libero: slide con nuove risposte, da inviare alla dashboard del facilitatore. */
+  const dirtySlides = new Map<string, Set<string>>();
+
+  async function flushAsync(sid: string) {
+    const ids = dirtySlides.get(sid);
+    dirtySlides.delete(sid);
+    const activity = await activityOf(sid);
+    if (!ids || !activity) return;
+    for (const id of ids) {
+      const slide = activity.slides.find((x) => x.id === id);
+      if (slide && isInteractive(slide)) io.to(rooms(sid).ctrl).emit(EV.results, { slideId: id, data: await computeResults(redis, sid, slide, true, true) });
+    }
+  }
+
+  function markDirty(sid: string, asyncSlideId?: string) {
+    if (asyncSlideId) {
+      const set = dirtySlides.get(sid) ?? new Set<string>();
+      set.add(asyncSlideId);
+      dirtySlides.set(sid, set);
+      if (dirty.has(sid)) return;
+      dirty.set(
+        sid,
+        setTimeout(() => {
+          dirty.delete(sid);
+          flushAsync(sid).catch((err) => logger.error({ err }, "flush risultati non riuscito"));
+        }, RESULTS_THROTTLE_MS),
+      );
+      return;
+    }
     if (dirty.has(sid)) return;
     dirty.set(
       sid,
@@ -252,6 +299,7 @@ export function createRealtimeServer(opts: RealtimeOptions) {
 
   function forgetSession(sid: string) {
     activityCache.delete(sid);
+    dirtySlides.delete(sid);
     revealedQuizzes.delete(sid);
     const t = timers.get(sid);
     if (t) clearTimeout(t);
@@ -331,7 +379,7 @@ export function createRealtimeServer(opts: RealtimeOptions) {
           await socket.join(r.p);
           const meta = await getMeta(redis, sid);
           if (meta) await redis.multi().hincrby(K.online(sid), instanceId, 1).pexpireat(K.online(sid), meta.expiresAt).exec();
-          void broadcastPresence(sid);
+          broadcastPresence(sid).catch(() => {});
         }
       };
       const replyJoined = async (ack: (res: unknown) => void, token: string, nickname: string) => {
@@ -339,27 +387,51 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         if (!built) return fail(ack, "ended");
         const slide = built.activity.slides[built.meta.index]!;
         const answered = isInteractive(slide) ? await answeredCount(redis, sid, slide.id, socket.data.tokenHash!) : 0;
-        ack({ ok: true, token, nickname, answered, expiresAt: built.meta.expiresAt, team: socket.data.team ?? null });
+        let asyncData = {};
+        if (built.meta.mode === "async") {
+          const interactive = built.activity.slides.filter(isInteractive);
+          const m = redis.multi();
+          for (const sl of interactive) m.hget(K.sub(sid, sl.id), socket.data.tokenHash!);
+          const res = (await m.exec()) as [null, string | null][];
+          const answeredSlides: Record<string, number> = {};
+          interactive.forEach((sl, i) => {
+            const n = Number(res[i]?.[1] ?? 0);
+            if (n) answeredSlides[sl.id] = n;
+          });
+          asyncData = { slides: built.activity.slides.map((sl) => toPublicSlide(sl)), answeredSlides };
+        }
+        ack({ ok: true, token, nickname, answered, expiresAt: built.meta.expiresAt, team: socket.data.team ?? null, mode: built.meta.mode, ...asyncData });
         socket.emit(EV.state, built.state);
       };
 
-      on(EV.join, async (payload, ack) => {
-        if (!(await hit(redis, socket.data.ipHash, "join", RATE.joinPerIp.limit, RATE.joinPerIp.window))) return fail(ack, "rate_limited");
-        const raw = (payload as { nickname?: unknown })?.nickname;
-        if (typeof raw !== "string") return fail(ack, "nickname_invalid");
-        const nickname = cleanNickname(raw);
-        if (nickname.length < LIMITS.nicknameMin || nickname.length > LIMITS.nicknameMax) return fail(ack, "nickname_invalid");
-        if (moderation.isFiltered(nickname)) return fail(ack, "nickname_filtered");
+      on(EV.info, async (_payload, ack) => {
         const meta = await getMeta(redis, sid);
         if (!meta || meta.status !== "active") return fail(ack, "ended");
-        const added = await redis.sadd(K.nicks(sid), nickname.toLocaleLowerCase("it-IT"));
-        if (!added) return fail(ack, "nickname_taken");
+        ack({ ok: true, mode: meta.mode, title: meta.title, expiresAt: meta.expiresAt });
+      });
+
+      on(EV.join, async (payload, ack) => {
+        if (!(await hit(redis, socket.data.ipHash, "join", RATE.joinPerIp.limit, RATE.joinPerIp.window))) return fail(ack, "rate_limited");
+        const meta = await getMeta(redis, sid);
+        if (!meta || meta.status !== "active") return fail(ack, "ended");
+        // A ritmo libero non serve alcun nickname: nessuna classifica, nessuna identità, solo il token tecnico.
+        const isAsync = meta.mode === "async";
+        let nickname = "";
+        if (!isAsync) {
+          const raw = (payload as { nickname?: unknown })?.nickname;
+          if (typeof raw !== "string") return fail(ack, "nickname_invalid");
+          nickname = cleanNickname(raw);
+          if (nickname.length < LIMITS.nicknameMin || nickname.length > LIMITS.nicknameMax) return fail(ack, "nickname_invalid");
+          if (moderation.isFiltered(nickname)) return fail(ack, "nickname_filtered");
+          const added = await redis.sadd(K.nicks(sid), nickname.toLocaleLowerCase("it-IT"));
+          if (!added) return fail(ack, "nickname_taken");
+        }
         const token = randomToken(16);
         const tokenHash = sha256(token);
         // Squadre con assegnazione automatica: bilanciata e atomica già all'ingresso.
         const activity = await activityOf(sid);
         const teams = activity ? teamsOf(activity.settings) : [];
-        const team = teams.length && activity!.settings.teams.mode === "auto" ? await assignBalancedTeam(redis, sid, teams, meta.expiresAt) : null;
+        const team = !isAsync && teams.length && activity!.settings.teams.mode === "auto" ? await assignBalancedTeam(redis, sid, teams, meta.expiresAt) : null;
         socket.data.team = team;
         await redis
           .multi()
@@ -393,11 +465,11 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         ]);
         if (!okToken || !okIp) return fail(ack, "rate_limited");
         const p = payload as { slideId?: unknown; answer?: unknown };
-        if (typeof p?.slideId !== "string") return fail(ack, "invalid");
-        const cur = await currentInteractive(sid);
-        if (!cur) return fail(ack, "ended");
-        if (!cur.slide || cur.slide.id !== p.slideId) return fail(ack, "not_current");
-        if (await lockedNow(sid, cur.meta, cur.slide.id)) return fail(ack, "locked");
+        const t = await targetInteractive(sid, p?.slideId);
+        if ("error" in t) return fail(ack, t.error!);
+        const cur = t;
+        const isAsync = cur.meta.mode === "async";
+        if (!isAsync && (await lockedNow(sid, cur.meta, cur.slide.id))) return fail(ack, "locked");
         const v = validateAnswer(cur.slide, p.answer);
         if (!v.ok) return fail(ack, "invalid");
         const moderationOn = cur.activity.settings?.moderation !== false;
@@ -408,23 +480,36 @@ export function createRealtimeServer(opts: RealtimeOptions) {
           answer: v.value,
           isFiltered: moderationOn ? moderation.isFiltered : () => false,
           expiresAt: cur.meta.expiresAt,
-          quizTiming: cur.meta.timerStart && cur.meta.timerEnd ? { start: cur.meta.timerStart, end: cur.meta.timerEnd } : null,
+          quizTiming: !isAsync && cur.meta.timerStart && cur.meta.timerEnd ? { start: cur.meta.timerStart, end: cur.meta.timerEnd } : null,
           now: Date.now(),
-          teamId: socket.data.team ?? null,
-          countMission: !!cur.activity.settings.mission?.enabled && cur.activity.settings.mission.type === "answers",
+          teamId: isAsync ? null : (socket.data.team ?? null),
+          countMission: !isAsync && !!cur.activity.settings.mission?.enabled && cur.activity.settings.mission.type === "answers",
         });
         if (!res.ok) return fail(ack, res.error);
-        markDirty(sid);
+        markDirty(sid, isAsync ? cur.slide.id : undefined);
+        // Ritmo libero: riscontro immediato del quiz, con soluzione e spiegazione.
+        if (isAsync && cur.slide.type === "quiz") {
+          const q = cur.slide;
+          return ack({
+            ok: true,
+            answered: res.answered,
+            feedback: {
+              correct: isQuizCorrect(q, v.value as QuizAnswer),
+              ...(q.mode === "single" ? { correctOptionId: q.correctOptionId } : { acceptedAnswers: q.acceptedAnswers }),
+              ...(q.explanation ? { explanation: q.explanation } : {}),
+            },
+          });
+        }
         ack({ ok: true, answered: res.answered });
       });
 
       /** Slide Q&A corrente, aperta, per un partecipante già entrato. */
       const currentQa = async (ack: (res: unknown) => void, slideId: unknown) => {
         if (!socket.data.tokenHash) return void fail(ack, "unauthorized");
-        const cur = await currentInteractive(sid);
-        if (!cur) return void fail(ack, "ended");
-        if (!cur.slide || cur.slide.type !== "qa" || cur.slide.id !== slideId) return void fail(ack, "not_current");
-        return cur;
+        const t = await targetInteractive(sid, slideId);
+        if ("error" in t) return void fail(ack, t.error!);
+        if (t.slide.type !== "qa") return void fail(ack, "not_current");
+        return t;
       };
 
       on(EV.qaState, async (payload, ack) => {
@@ -461,7 +546,7 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         if (!res.filtered && cur.activity.settings.mission?.enabled && cur.activity.settings.mission.type === "answers") {
           await countMissionAnswer(redis, sid, cur.meta.expiresAt);
         }
-        markDirty(sid);
+        markDirty(sid, cur.meta.mode === "async" ? cur.slide!.id : undefined);
         ack({ ok: true, asked: res.asked });
       });
 
@@ -474,7 +559,7 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         if (await lockedNow(sid, cur.meta, cur.slide!.id)) return fail(ack, "locked");
         const res = await qaVote(redis, { sid, slideId: cur.slide!.id, tokenHash: socket.data.tokenHash!, qid: p.qid, expiresAt: cur.meta.expiresAt });
         if (!res.ok) return fail(ack, res.error);
-        markDirty(sid);
+        markDirty(sid, cur.meta.mode === "async" ? cur.slide!.id : undefined);
         ack({ ok: true, votes: res.votes });
       });
 
@@ -545,8 +630,17 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         state: built.state,
         code: built.meta.code,
         expiresAt: built.meta.expiresAt,
-        participants: await participantsOnline(sid),
+        participants: await participantsOnline(sid, built.meta.mode),
+        // Ritmo libero: la dashboard riceve subito gli aggregati di tutte le slide.
+        ...(built.meta.mode === "async" && role === "control"
+          ? {
+              allResults: await Promise.all(
+                built.activity.slides.filter(isInteractive).map(async (sl) => ({ slideId: sl.id, data: await computeResults(redis, sid, sl, true, true) })),
+              ),
+            }
+          : {}),
       });
+      if (built.meta.mode === "async") return;
       const slide = built.activity.slides[built.meta.index];
       if (slide && isInteractive(slide)) {
         const revealed = slide.type === "quiz" && built.state.locked;
@@ -560,9 +654,15 @@ export function createRealtimeServer(opts: RealtimeOptions) {
 
     if (role !== "control") return;
 
-    const withMeta = async (ack: (res: unknown) => void, fn: (meta: SessionMeta, activity: ActivityContent) => Promise<void>) => {
+    const withMeta = async (
+      ack: (res: unknown) => void,
+      fn: (meta: SessionMeta, activity: ActivityContent) => Promise<void>,
+      opts: { asyncAllowed?: boolean } = {},
+    ) => {
       const [meta, activity] = await Promise.all([getMeta(redis, sid), activityOf(sid)]);
       if (!meta || !activity || meta.status !== "active") return fail(ack, "ended");
+      // I comandi di conduzione (avanzamento, timer, blocco, vista) non esistono a ritmo libero.
+      if (meta.mode === "async" && !opts.asyncAllowed) return fail(ack, "invalid");
       await fn(meta, activity);
       ack({ ok: true });
     };
@@ -683,8 +783,9 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         if (!slide || !isInteractive(slide)) return;
         if (slide.type === "qa") await qaUpdate(redis, { sid, slideId: slide.id, qid: p.itemId as string, hidden: p.hidden as boolean, expiresAt: meta.expiresAt });
         else await setHidden(redis, { sid, slide: slide as InteractiveSlide, itemId: p.itemId as string, hidden: p.hidden as boolean, expiresAt: meta.expiresAt });
-        await flushResults(sid);
-      });
+        if (meta.mode === "async") markDirty(sid, slide.id);
+        else await flushResults(sid);
+      }, { asyncAllowed: true });
     });
 
     /** Q&A: segna una domanda come risposta (o la riporta in attesa). */
@@ -695,8 +796,9 @@ export function createRealtimeServer(opts: RealtimeOptions) {
         const slide = activity.slides.find((sl) => sl.id === p.slideId);
         if (!slide || slide.type !== "qa") return;
         await qaUpdate(redis, { sid, slideId: slide.id, qid: p.qid as string, answered: p.answered as boolean, expiresAt: meta.expiresAt });
-        await flushResults(sid);
-      });
+        if (meta.mode === "async") markDirty(sid, slide.id);
+        else await flushResults(sid);
+      }, { asyncAllowed: true });
     });
 
     /** Cosa mostra la Proiezione: slide, classifica (squadre o individuale) o podio di squadra. */

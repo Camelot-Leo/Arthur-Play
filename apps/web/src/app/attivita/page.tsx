@@ -5,9 +5,12 @@ import { Footer } from "@/components/Footer";
 import { listOwned } from "@/lib/server/activities";
 import { requireUser } from "@/lib/server/auth";
 import { redis } from "@/lib/server/services";
-import { LogoutButton, NewActivityButton, StartButton } from "./ActivityActions";
+import { LogoutButton, NewActivityButton, StartAsyncButton, StartButton } from "./ActivityActions";
 
 export const dynamic = "force-dynamic";
+
+const formatDate = (ms: number) =>
+  new Intl.DateTimeFormat("it-IT", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Rome" }).format(new Date(ms));
 
 export default async function ActivitiesPage() {
   const user = await requireUser();
@@ -31,7 +34,9 @@ export default async function ActivitiesPage() {
               {sessions.map((s) => (
                 <li key={s.sid} className="card flex flex-wrap items-center justify-between gap-3 p-4">
                   <span>
-                    <strong>{s.title}</strong> · {T.control.code} <span className="font-mono">{s.code}</span>
+                    <strong>{s.title}</strong> · {s.mode === "async" ? T.async.mode : T.async.live} · {T.control.code}{" "}
+                    <span className="font-mono">{s.code}</span>
+                    {s.mode === "async" && <span className="text-sm text-muted"> · {T.async.expiresOn(formatDate(s.expiresAt))}</span>}
                   </span>
                   <Link className="btn btn-dark" href={`/regia/${s.sid}`}>
                     {T.activities.openControl}
@@ -60,6 +65,7 @@ export default async function ActivitiesPage() {
                     {T.activities.edit}
                   </Link>
                   <StartButton activityId={a.id} />
+                  <StartAsyncButton activityId={a.id} />
                 </div>
               </li>
             ))}

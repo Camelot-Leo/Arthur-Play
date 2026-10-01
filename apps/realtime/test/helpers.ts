@@ -49,6 +49,8 @@ export async function startServer(opts: { pubsub?: boolean } = {}) {
       for (const s of sockets) s.disconnect();
       await rt.close();
       httpServer.close();
+      // Lascia terminare gli aggiornamenti asincroni (presenze, flush) prima di chiudere Redis.
+      await new Promise((r) => setTimeout(r, 400));
       if (pubsub) {
         await pubsub.pub.quit();
         await pubsub.sub.quit();

@@ -24,6 +24,9 @@ export const LIMITS = {
   teamNameMax: 30,
   missionTargetMax: 10000,
   leaderboardTop: 10,
+  explanationMax: 500,
+  /** Ritmo libero: scadenza minima 10 minuti, massima 14 giorni. */
+  asyncMinMinutes: 10,
   slidesMax: 100,
   titleMax: 120,
   questionMax: 200,

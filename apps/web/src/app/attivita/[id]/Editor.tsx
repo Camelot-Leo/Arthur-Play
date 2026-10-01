@@ -430,6 +430,13 @@ function QuizForm({ slide, onChange, notes }: { slide: Extract<Slide, { type: "q
           onChange={(v) => onChange({ ...slide, acceptedAnswers: v.split("\n").slice(0, LIMITS.quizAcceptedMax) })}
         />
       )}
+      <TextField
+        label={T.editor.quizExplanation}
+        value={slide.explanation ?? ""}
+        max={LIMITS.explanationMax}
+        multiline
+        onChange={(v) => onChange({ ...slide, explanation: v || undefined })}
+      />
       <Field label={T.editor.quizTimer}>
         {(id) => (
           <input

@@ -109,6 +109,8 @@ export const quizSlideSchema = z.object({
   correctOptionId: id.optional(),
   acceptedAnswers: z.array(text(LIMITS.quizAnswerMax).min(1)).max(LIMITS.quizAcceptedMax).default([]),
   timerSeconds: z.number().int().min(LIMITS.timerMinSeconds).max(LIMITS.quizTimerMaxSeconds).nullable().default(20),
+  /** Spiegazione mostrata dopo ogni risposta nella modalità a ritmo libero. */
+  explanation: text(LIMITS.explanationMax).optional(),
   notes,
 });
 
@@ -224,7 +226,7 @@ export type PublicInteractive = DistributiveOmit<InteractiveSlide, "notes">;
 export function toPublicSlide(slide: Slide): PublicSlide {
   const { notes: _notes, ...rest } = slide;
   if (rest.type === "quiz") {
-    const { correctOptionId: _c, acceptedAnswers: _a, ...quiz } = rest;
+    const { correctOptionId: _c, acceptedAnswers: _a, explanation: _e, ...quiz } = rest;
     return { ...quiz, acceptedAnswers: [] } as PublicSlide;
   }
   return rest as PublicSlide;

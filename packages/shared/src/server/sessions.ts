@@ -1,10 +1,11 @@
 import type { Redis } from "ioredis";
-import { LIVE_SESSION_TTL_SECONDS } from "../limits";
+import { ASYNC_SESSION_MAX_SECONDS, LIVE_SESSION_TTL_SECONDS } from "../limits";
 import type { ActivityContent } from "../slides/schema";
 import { randomCode, randomToken } from "./crypto";
 import { K } from "./keys";
 
-export type SessionMode = "live";
+/** live: guidata dal facilitatore (max 24 h); async: a ritmo libero con scadenza scelta (max 14 giorni). */
+export type SessionMode = "live" | "async";
 
 export type SessionMeta = {
   sid: string;
@@ -30,7 +31,7 @@ export function parseMeta(sid: string, h: Record<string, string>): SessionMeta |
     sid,
     code: h.code,
     ownerId: h.ownerId ?? "",
-    mode: "live",
+    mode: h.mode === "async" ? "async" : "live",
     status: h.status === "ended" ? "ended" : "active",
     index: Number(h.index ?? 0),
     resultsVisible: h.resultsVisible === "1",
@@ -60,15 +61,17 @@ export async function sidByCode(redis: Redis, code: string): Promise<string | nu
 }
 
 /**
- * Crea una sessione live: fotografa l'attività in Redis e assegna un codice a 6 cifre.
- * Ogni chiave scade con la sessione (max 24 ore).
+ * Crea una sessione (live o a ritmo libero): fotografa l'attività in Redis e assegna un codice a 6 cifre.
+ * Ogni chiave scade con la sessione (live max 24 ore, a ritmo libero max 14 giorni).
  */
 export async function createSession(
   redis: Redis,
-  opts: { ownerId: string; activity: ActivityContent; ttlSeconds?: number },
+  opts: { ownerId: string; activity: ActivityContent; ttlSeconds?: number; mode?: SessionMode },
 ): Promise<{ sid: string; code: string; expiresAt: number }> {
   const sid = randomToken(12);
-  const ttl = Math.min(opts.ttlSeconds ?? LIVE_SESSION_TTL_SECONDS, LIVE_SESSION_TTL_SECONDS);
+  const mode = opts.mode ?? "live";
+  const maxTtl = mode === "async" ? ASYNC_SESSION_MAX_SECONDS : LIVE_SESSION_TTL_SECONDS;
+  const ttl = Math.max(1, Math.min(opts.ttlSeconds ?? maxTtl, maxTtl));
   const expiresAt = Date.now() + ttl * 1000;
 
   let code: string | null = null;
@@ -84,7 +87,7 @@ export async function createSession(
     .hset(K.meta(sid), {
       code,
       ownerId: opts.ownerId,
-      mode: "live",
+      mode,
       status: "active",
       index: 0,
       resultsVisible: "1",

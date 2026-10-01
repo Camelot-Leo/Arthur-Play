@@ -54,7 +54,7 @@ Senza dipendenze: grafici SVG, export PNG (SVG → canvas), suoni Web Audio, ani
 - [x] Fase 1 — MVP live (vedi note sotto)
 - [x] Fase 2 — Tipi di slide restanti e quiz
 - [x] Fase 3 — Gamification
-- [ ] Fase 4 — Ritmo libero
+- [x] Fase 4 — Ritmo libero
 - [ ] Fase 5 — Funzioni AI
 - [ ] Fase 6 — Editor completo, libreria condivisa, admin
 
@@ -89,6 +89,15 @@ Senza dipendenze: grafici SVG, export PNG (SVG → canvas), suoni Web Audio, ani
 - Colori delle squadre in `tokens.css` dentro `:root` (non in `@theme`, altrimenti Tailwind li elimina perché non usati come classi). Test e2e verifica i colori effettivi.
 - Nuove chiavi Redis: `:teams`, `:tscore`, `:mission` (tutte con TTL della sessione).
 - `pnpm load:teams`: test di carico con 4 squadre (bilanciamento + classifica).
+
+## Note operative (Fase 4)
+
+- Sessione `mode: "async"` (`createSession(..., { mode: "async", ttlSeconds })`): scadenza scelta dal facilitatore, da 10 minuti a 14 giorni (validata nell'API e limitata in `createSession`). Live resta max 24 h.
+- Ingresso a ritmo libero **senza nickname** (`p:info` dice la modalità prima dell'ingresso). Niente squadre, classifica né missione a ritmo libero.
+- Il partecipante riceve tutte le slide pubbliche all'ingresso (`JoinReply.slides`) e `answeredSlides` (dal contatore `:sub` per hash del token): è l'unica informazione per riprendere e bloccare i doppi invii. La posizione corrente è solo nel browser.
+- Le risposte vanno a qualunque slide (`targetInteractive`); nessun blocco/timer. Quiz: riscontro immediato nell'ack (`feedback`: corretta, soluzione, `explanation`). `explanation` non è mai nella slide pubblica.
+- Facilitatore: `/regia/[sid]` mostra `AsyncDashboard` (solo aggregati di tutte le slide, `allResults` all'init + aggiornamenti per slide; conteggio di chi ha iniziato = `HLEN` dei partecipanti). I comandi di conduzione live sono rifiutati (`withMeta` senza `asyncAllowed`).
+- Alla scadenza (TTL) il sweep avvisa la dashboard; il codice smette di funzionare.
 
 ## Punti aperti da ricordare
 

@@ -10,7 +10,9 @@ import {
   type Answer,
   type AnswerReply,
   type ErrorCode,
+  type InfoReply,
   type JoinReply,
+  type PublicSlide,
   type MissionMessage,
   type QaPublicMessage,
   type SessionState,
@@ -23,13 +25,15 @@ import { connectRealtime, emitAck } from "@/lib/client/realtime";
 import { MissionBar } from "@/components/game/MissionBar";
 import { TeamBadge } from "@/components/game/TeamBadge";
 import { AnswerInput } from "./Inputs";
+import { AsyncFlow } from "./AsyncFlow";
 import { StandingCard, TeamPicker } from "./Game";
 import { QaPanel } from "./QaPanel";
 import { QuizFeedback } from "./QuizFeedback";
 
 export type Request = <T>(event: string, payload?: unknown) => Promise<T | null>;
 
-type Phase = "connecting" | "notfound" | "nickname" | "live" | "ended";
+type Phase = "connecting" | "notfound" | "nickname" | "asyncIntro" | "live" | "ended";
+type AsyncData = { slides: PublicSlide[]; answered: Record<string, number>; title: string };
 
 const errorText = (e: ErrorCode | string) => (T.errors as Record<string, string>)[e] ?? T.errors.generic;
 
@@ -45,6 +49,8 @@ export function ParticipantApp({ code }: { code: string }) {
   const socketRef = useRef<Socket | null>(null);
   const [qa, setQa] = useState<QaPublicMessage | null>(null);
   const [team, setTeam] = useState<string | null>(null);
+  const [asyncData, setAsyncData] = useState<AsyncData | null>(null);
+  const [title, setTitle] = useState("");
   // Risposte già inviate alla slide corrente, note all'ingresso/riconnessione (lo stato arriva subito dopo).
   const pendingAnswered = useRef<number | null>(null);
 
@@ -53,6 +59,7 @@ export function ParticipantApp({ code }: { code: string }) {
       saveToken(code, res.token, res.expiresAt);
       setNickname(res.nickname);
       setTeam(res.team);
+      if (res.mode === "async" && res.slides) setAsyncData((d) => ({ slides: res.slides!, answered: res.answeredSlides ?? {}, title: d?.title ?? "" }));
       setPhase("live");
       setError("");
     },
@@ -67,7 +74,10 @@ export function ParticipantApp({ code }: { code: string }) {
       setOnline(true);
       const token = readToken(code);
       if (!token) {
-        setPhase((p) => (p === "connecting" ? "nickname" : p));
+        // A ritmo libero non si chiede il nickname: basta un tocco su "Inizia".
+        const info = await emitAck<InfoReply>(socket, EV.info).catch(() => null);
+        if (info?.ok) setTitle(info.title);
+        setPhase((p) => (p === "connecting" ? (info?.ok && info.mode === "async" ? "asyncIntro" : "nickname") : p));
         return;
       }
       // Riconnessione automatica: il token tecnico riprende la stessa partecipazione.
@@ -125,6 +135,23 @@ export function ParticipantApp({ code }: { code: string }) {
     } else setError(errorText(res && !res.ok ? res.error : "generic"));
   };
 
+  /** Ritmo libero: risposta a una slide qualsiasi, con riscontro immediato del quiz. */
+  const submitAsync = async (slideId: string, answer: Answer) => {
+    const socket = socketRef.current;
+    if (!socket) return { ok: false };
+    setSending(true);
+    const res = await emitAck<AnswerReply>(socket, EV.answer, { slideId, answer }).catch(() => null);
+    setSending(false);
+    if (res?.ok) {
+      setAsyncData((d) => (d ? { ...d, answered: { ...d.answered, [slideId]: res.answered } } : d));
+      setError("");
+      return { ok: true, answered: res.answered, feedback: res.feedback };
+    }
+    if (res && !res.ok && res.error === "already_answered") setAsyncData((d) => (d ? { ...d, answered: { ...d.answered, [slideId]: 99 } } : d));
+    setError(errorText(res && !res.ok ? res.error : "generic"));
+    return { ok: false };
+  };
+
   const submit = async (answer: Answer): Promise<boolean> => {
     const socket = socketRef.current;
     if (!socket || !state) return false;
@@ -179,14 +206,31 @@ export function ParticipantApp({ code }: { code: string }) {
           </h1>
         )}
         {phase === "nickname" && <NicknameForm onSubmit={join} busy={sending} error={error} />}
-        {phase === "live" && state?.mission && !needsTeam && (
+        {phase === "asyncIntro" && (
+          <div className="flex flex-col gap-5">
+            {title && <h1 className="text-3xl font-semibold">{title}</h1>}
+            <p className="text-lg">{T.async.intro}</p>
+            <button type="button" className="btn btn-primary text-lg" disabled={sending} onClick={() => void join("")}>
+              {T.async.begin}
+            </button>
+            {error && (
+              <p role="alert" className="font-bold text-brand-ink">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
+        {phase === "live" && asyncData && (
+          <AsyncFlow slides={asyncData.slides} answered={asyncData.answered} submit={submitAsync} request={request} sending={sending} error={error} />
+        )}
+        {phase === "live" && !asyncData && state?.mission && !needsTeam && (
           <div className="mb-5">
             <MissionBar mission={state.mission} />
           </div>
         )}
-        {needsTeam && state?.teams && <TeamPicker teams={state.teams.list} request={request} onChosen={setTeam} />}
-        {phase === "live" && state && !needsTeam && state.view !== "slide" && <StandingCard key={state.view} view={state.view} request={request} />}
-        {phase === "live" && state && !needsTeam && state.view === "slide" && (
+        {!asyncData && needsTeam && state?.teams && <TeamPicker teams={state.teams.list} request={request} onChosen={setTeam} />}
+        {phase === "live" && !asyncData && state && !needsTeam && state.view !== "slide" && <StandingCard key={state.view} view={state.view} request={request} />}
+        {phase === "live" && !asyncData && state && !needsTeam && state.view === "slide" && (
           <LiveSlide
             state={state}
             answered={answered[state.slide.id] ?? 0}
